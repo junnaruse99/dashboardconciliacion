@@ -1,0 +1,57 @@
+# Instrucciones del proyecto
+
+- [x] Archivo de instrucciones creado.
+- [x] Requisitos aclarados: MVP React/TypeScript que representa el diseño objetivo de QuickSight.
+- [x] Proyecto Vite generado en la raíz del workspace.
+- [x] Dashboard personalizado con cinco pestañas, filtros, KPIs, gráficos y tablas.
+- [x] No se requieren extensiones adicionales.
+- [x] Dependencias instaladas y compilación validada.
+- [x] No se requiere tarea adicional; los scripts npm cubren desarrollo y compilación.
+- [x] Proyecto ejecutado y revisado en navegador.
+- [x] Documentación y contrato CSV incluidos.
+
+## Convenciones
+
+- Mantener un diccionario independiente por fuente en `docs/fuentes`, con campo, descripción, tipo y longitud. Si falta algún dato, solicitarlo a negocio en lugar de inventarlo.
+- Mantener React y TypeScript.
+- Conservar la secuencia visual por proceso: filtros, KPIs, gráficos y tabla.
+- Los procesos de conciliación válidos son CAN, REN e INV.
+- Los estados válidos son PEN y SOL.
+- Alta se alimenta por separado desde `MAESTRA_CONTRATOS.csv`; no participa en el cruce de conciliaciones y movimientos.
+- En Alta usar `CREATION_DATE` exclusivamente como fecha de alta o creación y `INSURANCE_PRODUCT_ID` como tipo de producto.
+- Usar `CAP-ICFECTE` como fecha de inicio del seguro; no confundirla con `CREATION_DATE`.
+- Mostrar en el detalle de Alta la modalidad `CAP-ICCMOD01` y la frecuencia de pago `CAP-ICTFOPAG` obtenidas del cruce con ICDTCAP.
+- Mostrar también la prima periódica `CAP-ICIPRTOT` y su moneda `CAP-ICDIVISA`, aprobadas por negocio.
+- Comparar `CONTRACT_STATUS_ID` (Banco) con `INSRNC_CO_CONTRACT_STATUS_TYPE` (RIMAC).
+- Los estados contractuales válidos son `ANU`, `BAJ`, `ERR`, `FOR`, `PEN` e `INC`; solo `PEN` cuenta como pendiente de formalización RIMAC.
+- Construir el identificador completo como entidad + oficina + dos dígitos verificadores + cuenta interna, sin ofuscación ni columnas independientes de entidad/oficina.
+- En Alta, el backlog `PEN` es histórico; los demás KPI, gráficos y tabla responden al rango temporal.
+- Enriquecer Alta con `ICDTCAP` mediante `LEFT JOIN` por entidad + oficina + primer verificador + segundo verificador + cuenta; no usar póliza como clave.
+- Tratar todos los componentes del identificador ICDTCAP como texto y conservar ceros iniciales.
+- Ante duplicados ICDTCAP, priorizar el registro con `CAP-ICHTIULM` más reciente y usar `CAP-ICFALMOV` como desempate.
+- Mantener las fuentes en archivos separados: `T_PISD_INSURANCE_CONCILIATION.csv` y `T_PISD_INSR_CONCILIATION_MOV.csv`.
+- Mantener `ICDTCAM.csv` como fuente independiente de movimientos de seguros; no confundirla ni fusionarla físicamente con `T_PISD_INSR_CONCILIATION_MOV.csv`.
+- Conservar en ICDTCAM la granularidad por movimiento y no deduplicar por contrato. Construir su clave contractual con `ICCENDIS` + `ICCOFDIS` + `ICCD1CTO` + `ICCD2CTO` + `ICCCTACT` y considerar `ICNUMOVI` en la identificación del movimiento.
+- No inventar los nombres físicos faltantes de las posiciones ICDTCAM 6, 17, 32, 33 y 39 ni las longitudes `string`; mantenerlos pendientes de negocio.
+- Relacionar ambas fuentes exclusivamente por `CONCILIATION_SEQUENTIAL_ID` con cardinalidad 1:N.
+- Mantener compatibilidad con archivos CSV cuyos encabezados coincidan con los campos Oracle documentados.
+- Los importes `PAYMENT_AMOUNT` y `OPERATED_AMOUNT` pertenecen a movimientos y deben agregarse antes de mostrarse a nivel de conciliación.
+- Mostrar importes exclusivamente en Cobranza (`INV`), siempre con dos decimales; en CAN y REN deben ignorarse.
+- En Cobranza calcular recibos cobrados, cobrados hoy y cobrados del mes con `ICDTCAM.ICFECOB`; no usar ICDTCAP ni fechas de creación de conciliación o movimiento como fecha real de cobro.
+- Tratar `ICDTCAM.ICFECOB` con valor por defecto `01-01-01` como recibo no cobrado; cualquier fecha real informada representa un cobro realizado.
+- Usar `ICDTCAM.ICFELIQ` para identificar los recibos que se deben intentar cobrar en la fecha y `ICDTCAM.ICNUMINT` para confirmar y sumar los intentos realizados sobre cada recibo.
+- Calcular la efectividad diaria como recibos con `ICFELIQ` de hoy, `ICNUMINT` mayor que cero e `ICFECOB` de hoy, divididos entre los recibos con `ICFELIQ` de hoy e `ICNUMINT` mayor que cero.
+- En conciliaciones `INV` con estado `PEN`, interpretar `INV_RIMAC_NOT_SENT` como cobro automático realizado cuya información no fue enviada por RIMAC.
+- En conciliaciones `INV` con estado `PEN`, interpretar `INV_RIMAC_NOT_CHAR` como recibo no cobrado cuya información tampoco fue enviada por RIMAC.
+- En Cobranza considerar abiertas las conciliaciones `INV` con estado `PEN` y mantener los importes desde movimientos agregados por conciliación.
+- En el detalle de Cobranza obtener póliza e `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` por entidad + oficina + cuenta interna y modalidad desde `CAP-ICCMOD01`; no usar la póliza de conciliación.
+- En Cancelación obtener la póliza mediante el cruce de conciliación con `MAESTRA_CONTRATOS` por entidad + oficina + cuenta interna; no usar `POLICY_ID` de conciliación.
+- En el detalle de Cancelación mostrar `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` y la modalidad `CAP-ICCMOD01` desde ICDTCAP.
+- En Renovación contar contratos renovados cuando `CONTRACT_RENEWAL_STATUS_TYPE` sea `REN`, usando `CAP-ICFECTE` como fecha para los KPI de hoy y del mes.
+- En el detalle de Renovación obtener póliza e `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` y modalidad desde `CAP-ICCMOD01`; no mostrar proceso ni usar la póliza de conciliación.
+- Para cancelados usar `CONTRACT_STATUS_ID` del Banco: `BAJ` con `CAP-ICFBAIXA` y `ANU` con `CAP-ICFANCON`.
+- No representar backlog histórico mensual de conciliaciones sin snapshots o historial de transiciones; diferenciar aperturas por `CREATION_DATE` y resoluciones `SOL` por `AUDIT_DATE`.
+- `POLICY_ID` es numérico y admite entre 1 y 10 dígitos.
+- No mostrar ni exportar `INSRC_CONTRACT_INT_ACCOUNT_ID`.
+- Admitir únicamente los códigos `CAN_FILE_NOT_SENT`, `CAN_DUPLICATE_RESP`, `INV_RIMAC_NOT_SENT`, `INV_RIMAC_NOT_CHAR`, `CAN_UNEXPECTED_ERR`, `REN_POL_NOTFOUND_ERR` y `CAN_CONCILIATION`.
+- Ejecutar `npm run build` después de cambios funcionales.
