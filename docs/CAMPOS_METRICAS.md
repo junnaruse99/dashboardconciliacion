@@ -18,18 +18,18 @@
 | `SOURCE_PROCESS_TYPE` | `T_PISD_INSR_CONCILIATION_MOV` | Proceso al que pertenece el movimiento; los importes solo se usan para `INV`. |
 | `PAYMENT_AMOUNT` | `T_PISD_INSR_CONCILIATION_MOV` | Importe informado por RIMAC. |
 | `OPERATED_AMOUNT` | `T_PISD_INSR_CONCILIATION_MOV` | Importe operado por el Banco. |
-| `INSURANCE_CONTRACT_ENTITY_ID` | `MAESTRA_CONTRATOS` | Entidad que forma parte de la clave completa del contrato. |
-| `INSURANCE_CONTRACT_BRANCH_ID` | `MAESTRA_CONTRATOS` | Oficina que forma parte de la clave completa del contrato. |
-| `CONTRACT_FIRST_VERFN_DIGIT_ID` | `MAESTRA_CONTRATOS` | Primer dígito verificador de la clave completa del contrato. |
-| `CONTRACT_SECOND_VERFN_DIGIT_ID` | `MAESTRA_CONTRATOS` | Segundo dígito verificador de la clave completa del contrato. |
-| `INSRC_CONTRACT_INT_ACCOUNT_ID` | `MAESTRA_CONTRATOS` | Cuenta interna que forma parte de la clave completa del contrato. |
-| `POLICY_ID` | `MAESTRA_CONTRATOS` | Número de póliza usado en los detalles de Alta, Cancelación, Renovación y Cobranza. |
-| `CUSTOMER_ID` | `MAESTRA_CONTRATOS` | Identificador del cliente mostrado en el detalle de Alta. |
-| `INSURANCE_PRODUCT_ID` | `MAESTRA_CONTRATOS` | Tipo de producto usado en filtros, agrupaciones y detalles. |
-| `INSRNC_CO_CONTRACT_STATUS_TYPE` | `MAESTRA_CONTRATOS` | Estado contractual informado por RIMAC. |
-| `CONTRACT_STATUS_ID` | `MAESTRA_CONTRATOS` | Estado contractual del Banco. |
-| `CREATION_DATE` | `MAESTRA_CONTRATOS` | Fecha de alta o creación del contrato. |
-| `CONTRACT_RENEWAL_STATUS_TYPE` | `MAESTRA_CONTRATOS` | Estado de renovación; `REN` identifica un contrato renovado. |
+| `INSURANCE_CONTRACT_ENTITY_ID` | `T_PISD_INSURANCE_CONTRACT` | Entidad que forma parte de la clave completa del contrato. |
+| `INSURANCE_CONTRACT_BRANCH_ID` | `T_PISD_INSURANCE_CONTRACT` | Oficina que forma parte de la clave completa del contrato. |
+| `CONTRACT_FIRST_VERFN_DIGIT_ID` | `T_PISD_INSURANCE_CONTRACT` | Primer dígito verificador de la clave completa del contrato. |
+| `CONTRACT_SECOND_VERFN_DIGIT_ID` | `T_PISD_INSURANCE_CONTRACT` | Segundo dígito verificador de la clave completa del contrato. |
+| `INSRC_CONTRACT_INT_ACCOUNT_ID` | `T_PISD_INSURANCE_CONTRACT` | Cuenta interna que forma parte de la clave completa del contrato. |
+| `POLICY_ID` | `T_PISD_INSURANCE_CONTRACT` | Número de póliza usado en los detalles de Alta, Cancelación, Renovación y Cobranza. |
+| `CUSTOMER_ID` | `T_PISD_INSURANCE_CONTRACT` | Identificador del cliente mostrado en el detalle de Alta. |
+| `INSURANCE_PRODUCT_ID` | `T_PISD_INSURANCE_CONTRACT` | Tipo de producto usado en filtros, agrupaciones y detalles. |
+| `INSRNC_CO_CONTRACT_STATUS_TYPE` | `T_PISD_INSURANCE_CONTRACT` | Estado contractual informado por RIMAC. |
+| `CONTRACT_STATUS_ID` | `T_PISD_INSURANCE_CONTRACT` | Estado contractual del Banco. |
+| `CREATION_DATE` | `T_PISD_INSURANCE_CONTRACT` | Fecha de alta o creación del contrato. |
+| `CONTRACT_RENEWAL_STATUS_TYPE` | `T_PISD_INSURANCE_CONTRACT` | Estado de renovación; `REN` identifica un contrato renovado. |
 | `CAP-ICCENDIS` | `ICDTCAP` | Entidad que forma parte de la clave completa del contrato. |
 | `CAP-ICCOFDIS` | `ICDTCAP` | Oficina que forma parte de la clave completa del contrato. |
 | `CAP-ICCD1CTO` | `ICDTCAP` | Primer dígito verificador de la clave completa del contrato. |
@@ -45,6 +45,7 @@
 | `CAP-ICDIVISA` | `ICDTCAP` | Moneda de la prima periódica. |
 | `CAP-ICHTIULM` | `ICDTCAP` | Fecha y hora usada para seleccionar el registro más reciente de cada contrato. |
 | `CAP-ICFALMOV` | `ICDTCAP` | Fecha usada como desempate al seleccionar el registro más reciente. |
+| `CAP-ICNUMCLIEN` | `ICDTCAP` | Identificador del cliente generado por la entidad y que se encuentra como asegurado en la póliza. El Asegurado es la persona que está en la posibilidad de sufrir un siniestro o tiene bienes de su propiedad susceptibles de sufrir un siniestro. |
 | `ICCENDIS` | `ICDTCAM` | Entidad que forma parte de la clave contractual del recibo. |
 | `ICCOFDIS` | `ICDTCAM` | Oficina que forma parte de la clave contractual del recibo. |
 | `ICCD1CTO` | `ICDTCAM` | Primer dígito verificador de la clave contractual del recibo. |
