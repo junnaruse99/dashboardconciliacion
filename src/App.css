@@ -10,8 +10,20 @@
 .amount-diff{display:inline-flex;padding:5px 8px;border-radius:20px;color:#168862;background:#e8f7f1;font-size:8px;font-weight:700;font-style:normal}
 .amount-diff.high{color:#cf5754;background:#fff0ef}
 .filters.alta-contracts{grid-template-columns:auto repeat(5,minmax(130px,1fr)) auto}
-.filters.cancellation-filters{grid-template-columns:auto repeat(4,minmax(145px,1fr)) auto}
-.filters.renewal-filters{grid-template-columns:auto repeat(4,minmax(145px,1fr)) auto}
+.filters.cancellation-filters,.filters.renewal-filters{grid-template-columns:repeat(4,minmax(145px,1fr))}
+.filters.cancellation-filters>b,.filters.renewal-filters>b{grid-column:1/-1}
+.filters.cancellation-filters .reset,.filters.renewal-filters .reset{grid-column:-2/-1}
+.filters.collection-filters{grid-template-columns:auto repeat(2,minmax(180px,1fr)) auto}
+.metric-section{margin:0 0 20px;padding:16px;border:1px solid var(--border);border-radius:12px;background:#fff}
+.metric-section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:0 0 13px}
+.metric-section>header h2{margin:0;font:700 14px Manrope}
+.metric-section>header p{margin:4px 0 0;color:var(--muted);font-size:11px}
+.metric-section>header>span{padding:5px 9px;border-radius:20px;font-size:9px;font-weight:700;white-space:nowrap}
+.metric-section .kpis{margin:0}
+.fixed-metrics{border-color:#d9dce5;background:linear-gradient(135deg,#f1f3f7,#f8f9fb)}
+.fixed-metrics>header>span{color:#596273;background:#e2e5eb}
+.variable-metrics{border-color:#dcd9ff;box-shadow:inset 3px 0 #665cf6}
+.variable-metrics>header>span{color:#554bd4;background:#eeecff}
 .custom-select{position:relative;z-index:3}
 .custom-select.open{z-index:30}
 .custom-select>div{position:relative;padding:0}
@@ -27,9 +39,36 @@
 .badge.neutral{color:#596273;background:#eef1f5}
 .alta-detail table{min-width:1650px}
 .cancellation-detail table{min-width:1050px}
-.renewal-detail table{min-width:1050px}
-.collection-detail table{min-width:1550px}
-.renewal-charts{grid-template-columns:1fr}
+.renewal-detail table{min-width:2100px}
+.renewal-detail th small{display:block;margin-top:4px;color:#8a91a3;font-size:10px;font-weight:600;letter-spacing:.02em;text-transform:none}
+.renewal-detail td:nth-child(6) b{color:#e05b58}
+.collection-detail table{min-width:1400px}
+.renewal-charts{grid-template-columns:repeat(2,minmax(280px,1fr))}
+.filters.alta-contracts.alta-filters-split{grid-template-columns:1fr;gap:12px}
+.filters.cancellation-filters.cancellation-filters-split{grid-template-columns:1fr;gap:12px}
+.filters.renewal-filters.renewal-filters-split{grid-template-columns:1fr;gap:12px}
+.filters.collection-filters.collection-filters-split{grid-template-columns:1fr;gap:12px}
+.filters.overview-filters.overview-filters-split{grid-template-columns:1fr;gap:12px}
+.filters.alta-contracts.alta-filters-split>b{grid-column:1/-1}
+.filters.cancellation-filters.cancellation-filters-split>b{grid-column:1/-1}
+.filters.renewal-filters.renewal-filters-split>b{grid-column:1/-1}
+.filters.collection-filters.collection-filters-split>b{grid-column:1/-1}
+.filters.overview-filters.overview-filters-split>b{grid-column:1/-1}
+.filters.alta-contracts.alta-filters-split .filter-group,.filters.cancellation-filters.cancellation-filters-split .filter-group,.filters.renewal-filters.renewal-filters-split .filter-group,.filters.collection-filters.collection-filters-split .filter-group,.filters.overview-filters.overview-filters-split .filter-group{padding:12px;border:1px solid var(--border);border-radius:10px;background:#f9fafc}
+.filters.alta-contracts.alta-filters-split .filter-group h3,.filters.cancellation-filters.cancellation-filters-split .filter-group h3,.filters.renewal-filters.renewal-filters-split .filter-group h3,.filters.collection-filters.collection-filters-split .filter-group h3,.filters.overview-filters.overview-filters-split .filter-group h3{margin:0 0 10px;font:700 11px Manrope;color:#3d4556;text-transform:uppercase;letter-spacing:.05em}
+.filters.alta-contracts.alta-filters-split .filter-group-grid,.filters.cancellation-filters.cancellation-filters-split .filter-group-grid,.filters.renewal-filters.renewal-filters-split .filter-group-grid,.filters.collection-filters.collection-filters-split .filter-group-grid,.filters.overview-filters.overview-filters-split .filter-group-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.filters.alta-contracts.alta-filters-split .business-group .filter-group-grid,.filters.cancellation-filters.cancellation-filters-split .business-group .filter-group-grid,.filters.renewal-filters.renewal-filters-split .business-group .filter-group-grid,.filters.collection-filters.collection-filters-split .business-group .filter-group-grid,.filters.overview-filters.overview-filters-split .business-group .filter-group-grid{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.filters.alta-contracts.alta-filters-split .reset{justify-self:end;min-height:40px}
+.filters.cancellation-filters.cancellation-filters-split .reset{justify-self:end;min-height:40px}
+.filters.renewal-filters.renewal-filters-split .reset{justify-self:end;min-height:40px}
+.filters.collection-filters.collection-filters-split .reset{justify-self:end;min-height:40px}
+.filters.overview-filters.overview-filters-split .reset{justify-self:end;min-height:40px}
+.alta-charts-full{grid-template-columns:1fr}
+.alta-charts-full .chart{width:100%}
+.alta-insight-charts{grid-template-columns:repeat(2,minmax(280px,1fr))}
+.alta-insight-charts .chart.wide{grid-column:1/-1}
 @media(max-width:1450px){.source{display:none}.topbar>section{margin-left:auto}}
 @media(max-width:1250px){.filters.alta-contracts,.filters.cancellation-filters,.filters.renewal-filters{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:620px){.filters.alta-contracts,.filters.cancellation-filters,.filters.renewal-filters{grid-template-columns:1fr}}
+@media(max-width:1050px){.renewal-charts{grid-template-columns:1fr}.alta-insight-charts{grid-template-columns:1fr}}
+@media(max-width:900px){.filters.alta-contracts.alta-filters-split,.filters.cancellation-filters.cancellation-filters-split,.filters.renewal-filters.renewal-filters-split,.filters.collection-filters.collection-filters-split,.filters.overview-filters.overview-filters-split{grid-template-columns:1fr}.filters.alta-contracts.alta-filters-split .filter-group-grid,.filters.alta-contracts.alta-filters-split .business-group .filter-group-grid,.filters.cancellation-filters.cancellation-filters-split .filter-group-grid,.filters.cancellation-filters.cancellation-filters-split .business-group .filter-group-grid,.filters.renewal-filters.renewal-filters-split .filter-group-grid,.filters.renewal-filters.renewal-filters-split .business-group .filter-group-grid,.filters.collection-filters.collection-filters-split .filter-group-grid,.filters.collection-filters.collection-filters-split .business-group .filter-group-grid,.filters.overview-filters.overview-filters-split .filter-group-grid,.filters.overview-filters.overview-filters-split .business-group .filter-group-grid{grid-template-columns:1fr 1fr}.filters.alta-contracts.alta-filters-split .reset,.filters.cancellation-filters.cancellation-filters-split .reset,.filters.renewal-filters.renewal-filters-split .reset,.filters.collection-filters.collection-filters-split .reset,.filters.overview-filters.overview-filters-split .reset{justify-self:stretch}}
+@media(max-width:620px){.filters.alta-contracts,.filters.cancellation-filters,.filters.renewal-filters,.filters.collection-filters{grid-template-columns:1fr}.filters.collection-filters>b,.filters.collection-filters .reset{grid-column:auto}.metric-section>header{display:block}.metric-section>header>span{display:inline-block;margin-top:8px}.alta-filters-split .filter-group-grid,.alta-filters-split .business-group .filter-group-grid{grid-template-columns:1fr}}

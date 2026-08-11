@@ -1,5 +1,11 @@
 # Instrucciones del proyecto
 
+## Documento canónico de reglas
+
+- Documento obligatorio de referencia: `docs/REGLAS_DASHBOARD.md`.
+- Antes de atender cualquier solicitud, revisar primero ese documento y aplicar sus reglas.
+- Cada nueva regla de negocio acordada debe registrarse también en la bitácora del mismo documento.
+
 - [x] Archivo de instrucciones creado.
 - [x] Requisitos aclarados: MVP React/TypeScript que representa el diseño objetivo de QuickSight.
 - [x] Proyecto Vite generado en la raíz del workspace.
@@ -15,6 +21,8 @@
 - Mantener un diccionario independiente por fuente en `docs/fuentes`, con campo, descripción, tipo y longitud. Si falta algún dato, solicitarlo a negocio en lugar de inventarlo.
 - Mantener React y TypeScript.
 - Conservar la secuencia visual por proceso: filtros, KPIs, gráficos y tabla.
+- En Renovación, Cancelación y Cobranza separar visualmente el corte fijo de hoy/mes de las métricas variables; indicar expresamente cuáles tarjetas no responden a filtros.
+- Mantener filtros de producto y frecuencia de pago en Renovación, Cancelación y Cobranza. La frecuencia se obtiene de `ICDTCAP.CAP-ICTFOPAG` y admite Mensual, Trimestral, Bimestral, Semestral y Anual.
 - Los procesos de conciliación válidos son CAN, REN e INV.
 - Los estados válidos son PEN y SOL.
 - Alta se alimenta por separado desde `MAESTRA_CONTRATOS.csv`; no participa en el cruce de conciliaciones y movimientos.
@@ -47,11 +55,16 @@
 - En el detalle de Cobranza obtener póliza e `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` por entidad + oficina + cuenta interna y modalidad desde `CAP-ICCMOD01`; no usar la póliza de conciliación.
 - En Cancelación obtener la póliza mediante el cruce de conciliación con `MAESTRA_CONTRATOS` por entidad + oficina + cuenta interna; no usar `POLICY_ID` de conciliación.
 - En el detalle de Cancelación mostrar `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` y la modalidad `CAP-ICCMOD01` desde ICDTCAP.
-- En Renovación contar contratos renovados cuando `CONTRACT_RENEWAL_STATUS_TYPE` sea `REN`, usando `CAP-ICFECTE` como fecha para los KPI de hoy y del mes.
-- En el detalle de Renovación obtener póliza e `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` y modalidad desde `CAP-ICCMOD01`; no mostrar proceso ni usar la póliza de conciliación.
+- En Renovación calcular la fecha esperada de confirmación 50 días antes y la fecha esperada de recibos 45 días antes de `CAP-ICFVENPO`; conservar `CAP-ICFECTE` exclusivamente como inicio de cobertura.
+- Mostrar al usuario lenguaje de negocio: confirmación de renovación, recibos enviados por RIMAC, fin de vigencia y días para regularizar; no mostrar D-50, D-45 ni D0.
+- En Renovación considerar efectiva una renovación cuando `CONTRACT_RENEWAL_STATUS_TYPE` sea `REN` y usar `CAP-ICFVENPO` como fin de vigencia.
+- Clasificar `PRE_NOTFOUND_ERR` y `PRE_AUT_NOTFOUND_ERR` como confirmación pendiente, y `REN_NOTFOUND_ERR` y `REN_AUT_NOTFOUND_ERR` como recibos pendientes. El sufijo `AUT` solo clasifica la incidencia; no inferir modalidad para contratos sin incidencia.
+- En Renovación interpretar `PEN` como información faltante abierta y `SOL` como información recibida posteriormente; no inventar el motivo del cierre ni equiparar directamente `SOL` con el archivo exitoso.
+- No atribuir una no renovación a una decisión de RIMAC sin un campo explícito de decisión o motivo; las fuentes actuales no lo contienen.
+- En el detalle de Renovación obtener póliza e `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` y modalidad desde `CAP-ICCMOD01`; mostrar días hasta `CAP-ICFVENPO`, no mostrar proceso ni usar la póliza de conciliación.
 - Para cancelados usar `CONTRACT_STATUS_ID` del Banco: `BAJ` con `CAP-ICFBAIXA` y `ANU` con `CAP-ICFANCON`.
 - No representar backlog histórico mensual de conciliaciones sin snapshots o historial de transiciones; diferenciar aperturas por `CREATION_DATE` y resoluciones `SOL` por `AUDIT_DATE`.
 - `POLICY_ID` es numérico y admite entre 1 y 10 dígitos.
 - No mostrar ni exportar `INSRC_CONTRACT_INT_ACCOUNT_ID`.
-- Admitir únicamente los códigos `CAN_FILE_NOT_SENT`, `CAN_DUPLICATE_RESP`, `INV_RIMAC_NOT_SENT`, `INV_RIMAC_NOT_CHAR`, `CAN_UNEXPECTED_ERR`, `REN_POL_NOTFOUND_ERR` y `CAN_CONCILIATION`.
+- Admitir únicamente los códigos `CAN_FILE_NOT_SENT`, `CAN_DUPLICATE_RESP`, `INV_RIMAC_NOT_SENT`, `INV_RIMAC_NOT_CHAR`, `CAN_UNEXPECTED_ERR`, `PRE_NOTFOUND_ERR`, `PRE_AUT_NOTFOUND_ERR`, `REN_NOTFOUND_ERR`, `REN_AUT_NOTFOUND_ERR` y `CAN_CONCILIATION`.
 - Ejecutar `npm run build` después de cambios funcionales.

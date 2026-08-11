@@ -35,7 +35,8 @@
 | `CAP-ICCD1CTO` | `ICDTCAP` | Primer dígito verificador de la clave completa del contrato. |
 | `CAP-ICCD2CTO` | `ICDTCAP` | Segundo dígito verificador de la clave completa del contrato. |
 | `CAP-ICCCTACT` | `ICDTCAP` | Cuenta interna que forma parte de la clave completa del contrato. |
-| `CAP-ICFECTE` | `ICDTCAP` | Fecha de inicio del seguro usada para identificar renovaciones. |
+| `CAP-ICFECTE` | `ICDTCAP` | Fecha de inicio de cobertura; no se usa para fechar los hitos de renovación. |
+| `CAP-ICFVENPO` | `ICDTCAP` | Último día de vigencia y fecha D0; permite calcular D-50 y D-45. |
 | `CAP-ICFBAIXA` | `ICDTCAP` | Fecha de baja usada cuando el estado Banco es `BAJ`. |
 | `CAP-ICFANCON` | `ICDTCAP` | Fecha de anulación usada cuando el estado Banco es `ANU`. |
 | `CAP-ICCMOD01` | `ICDTCAP` | Modalidad del seguro mostrada en los detalles. |
@@ -58,6 +59,8 @@
 
 # Métricas calculadas
 
+En Renovación, Cancelación y Cobranza las tarjetas se dividen entre **corte fijo del día**, independiente de filtros, y **resultado de los filtros**. Las tres vistas admiten producto y frecuencia de pago; ambos atributos provienen del contrato enriquecido con `MAESTRA_CONTRATOS` e `ICDTCAP.CAP-ICTFOPAG`.
+
 | Campo | Cálculo | Ubicación |
 |---|---|---|
 | Altas de hoy | Conteo de contratos con `CREATION_DATE = hoy`. | Alta |
@@ -78,11 +81,16 @@
 | Conciliaciones resueltas por período | Conteo de conciliaciones `SOL` agrupado por período de `AUDIT_DATE`. | Cancelación |
 | Motivos pendientes | Conteo de conciliaciones `PEN` agrupado por `ERROR_CODE_ID`. | Cancelación |
 | Antigüedad de abiertas | Días entre `CREATION_DATE` y hoy para conciliaciones `PEN`, agrupados en bandas. | Cancelación |
-| Renovados hoy | Conteo de contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFECTE = hoy`. | Renovación |
-| Renovados del mes | Conteo de contratos `REN` con `CAP-ICFECTE` dentro del mes actual. | Renovación |
-| Casos de renovación | Conteo de conciliaciones `REN` dentro del rango y estado seleccionados. | Renovación |
-| Renovaciones abiertas por período | Conteo de conciliaciones `REN` agrupado por `CREATION_DATE`. | Renovación |
-| Renovaciones resueltas por período | Conteo de conciliaciones `REN` y `SOL` agrupado por `AUDIT_DATE`. | Renovación |
+| Pólizas previstas para renovar | Contratos activos cuyo `CAP-ICFVENPO` pertenece al período seleccionado; excluye estados Banco `BAJ`, `ANU` y `ERR`. | Renovación |
+| Confirmadas por RIMAC | Pólizas cuya fecha esperada de confirmación ya llegó y no tienen una incidencia `PRE_*` abierta. Es un resultado inferido. | Renovación |
+| Recibos enviados por RIMAC | Pólizas cuya fecha esperada de recibos ya llegó y no tienen una incidencia `REN_*` abierta. Es un resultado inferido. | Renovación |
+| En riesgo sin confirmación | Pólizas aún vigentes con incidencia `PRE_NOTFOUND_ERR` o `PRE_AUT_NOTFOUND_ERR` en estado `PEN`. | Renovación |
+| Por renovar con información pendiente | Pólizas aún vigentes con una incidencia `PRE_*` o `REN_*` abierta. | Renovación |
+| No renovación por decisión RIMAC | No calculable con las fuentes actuales; requiere un indicador o motivo explícito proporcionado por RIMAC. | Renovación |
+| Renovadas hoy | Contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFVENPO = hoy`. | Renovación |
+| Vencidas sin renovar por información pendiente | Contratos con vigencia terminada, estado distinto de `REN` e incidencia `PRE_*` o `REN_*` abierta. | Renovación |
+| Renovadas en el mes | Contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFVENPO` dentro del mes actual. | Renovación |
+| Días para regularizar | Diferencia firmada en días calendario entre hoy y `CAP-ICFVENPO`; un valor negativo indica vigencia vencida. | Renovación |
 | Recibos cobrados | Conteo de movimientos ICDTCAM con `ICFECOB` real y distinto de `01-01-01`. | Cobranza |
 | Cobrados hoy | Conteo de movimientos con `ICFECOB = hoy`. | Cobranza |
 | Cobrados del mes | Conteo de movimientos con `ICFECOB` dentro del mes actual. | Cobranza |

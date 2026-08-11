@@ -22,3 +22,14 @@ Tabla maestra de conciliaciones. Los tipos, longitudes y restricciones correspon
 ## Relación
 
 `T_PISD_INSURANCE_CONCILIATION.CONCILIATION_SEQUENTIAL_ID` (1) → `T_PISD_INSR_CONCILIATION_MOV.CONCILIATION_SEQUENTIAL_ID` (N).
+
+## CÃ³digos de RenovaciÃ³n
+
+| CÃ³digo | Hito | Modalidad | InterpretaciÃ³n |
+|---|---|---|---|
+| `PRE_NOTFOUND_ERR` | PrerrenovaciÃ³n D-50 | No automÃ¡tica | RIMAC no enviÃ³ la trama de prerrenovaciÃ³n el dÃ­a esperado. |
+| `PRE_AUT_NOTFOUND_ERR` | PrerrenovaciÃ³n D-50 | AutomÃ¡tica | RIMAC no enviÃ³ la trama de prerrenovaciÃ³n para un producto con renovaciÃ³n automÃ¡tica. |
+| `REN_NOTFOUND_ERR` | Recibos D-45 | No automÃ¡tica | RIMAC no enviÃ³ la trama de renovaciÃ³n con los recibos del siguiente periodo. |
+| `REN_AUT_NOTFOUND_ERR` | Recibos D-45 | AutomÃ¡tica | RIMAC no enviÃ³ la trama de renovaciÃ³n con recibos para un producto con renovaciÃ³n automÃ¡tica. |
+
+Los cÃ³digos `PRE_*` pertenecen al proceso `REN`, aunque su prefijo represente la etapa de prerrenovaciÃ³n. `PEN` significa que la informaciÃ³n continÃºa faltante y `SOL` que llegÃ³ posteriormente; la fuente no informa el motivo especÃ­fico del cierre.

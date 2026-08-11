@@ -117,10 +117,13 @@ La cuenta interna no se muestra, no se exporta y no participa en las búsquedas.
 - `INV_RIMAC_NOT_SENT`
 - `INV_RIMAC_NOT_CHAR`
 - `CAN_UNEXPECTED_ERR`
-- `REN_POL_NOTFOUND_ERR`
+- `PRE_NOTFOUND_ERR`
+- `PRE_AUT_NOTFOUND_ERR`
+- `REN_NOTFOUND_ERR`
+- `REN_AUT_NOTFOUND_ERR`
 - `CAN_CONCILIATION`
 
-El prefijo del error debe coincidir con `SOURCE_PROCESS_TYPE`.
+El prefijo del error debe coincidir con `SOURCE_PROCESS_TYPE`, salvo los cÃ³digos `PRE_*`, que pertenecen al proceso `REN` y representan la etapa de prerrenovaciÃ³n D-50.
 
 Archivo de muestra: `T_PISD_INSURANCE_CONCILIATION.csv`.
 
@@ -178,14 +181,20 @@ Cada movimiento se agrega a nivel de conciliación. Los importes se fuerzan a ce
 
 ### Definiciones específicas de Renovación
 
-- **Periodo y estado:** filtran las conciliaciones `REN` por `CREATION_DATE` y `CONCILIATION_STATUS_TYPE`. No se aplican filtros de entidad, sucursal ni búsqueda.
-- **Renovados hoy/del mes:** contratos cuyo `CONTRACT_RENEWAL_STATUS_TYPE` sea `REN`, usando `ICDTCAP.CAP-ICFECTE` como fecha de inicio del contrato para determinar el día o mes.
-- **Cantidad de casos:** conciliaciones `REN` dentro del periodo y estado seleccionados.
-- **Tendencia histórica diaria:** aperturas por `CREATION_DATE` y soluciones `SOL` por `AUDIT_DATE`; ambas se agrupan por día.
-- **Detalle de Renovación:** la póliza y `INSURANCE_PRODUCT_ID` se obtienen de `MAESTRA_CONTRATOS`; la modalidad se obtiene de `ICDTCAP.CAP-ICCMOD01`. El cruce usa entidad + oficina + cuenta interna y no usa la póliza de conciliación.
+- **Separación de métricas:** “Corte fijo del día” contiene indicadores de hoy y del mes actual que no cambian con filtros. “Resultado de los filtros” contiene los indicadores, gráficos y detalle que sí responden a la selección.
+- **Filtros comunes:** Renovación, Cancelación y Cobranza permiten filtrar por producto y frecuencia de pago (`M`, `T`, `B`, `S`, `A`) mediante el cruce con `MAESTRA_CONTRATOS` e `ICDTCAP`.
+- **Lenguaje de negocio:** el tablero muestra confirmación de renovación, recibos enviados por RIMAC, fin de vigencia y días disponibles para regularizar. Los nombres técnicos de los hitos no se muestran al usuario.
+- **Fechas operativas:** la confirmación se espera 50 días antes del fin de vigencia y los recibos 45 días antes. Ambos plazos se calculan desde `ICDTCAP.CAP-ICFVENPO`; `CAP-ICFECTE` se conserva exclusivamente como inicio de cobertura.
+- **Renovación efectiva:** requiere `MAESTRA_CONTRATOS.CONTRACT_RENEWAL_STATUS_TYPE = REN` y se fecha con `CAP-ICFVENPO`.
+- **Información pendiente:** `PRE_NOTFOUND_ERR` y `PRE_AUT_NOTFOUND_ERR` indican confirmación pendiente; `REN_NOTFOUND_ERR` y `REN_AUT_NOTFOUND_ERR` indican recibos pendientes.
+- **Estado:** `PEN` representa información faltante abierta; `SOL` indica que llegó posteriormente. La fuente no distingue el motivo exacto del cierre.
+- **Cumplimiento inferido:** como la conciliación solo se crea cuando RIMAC no envía información a tiempo, una confirmación o recepción sin incidencia abierta es un valor inferido, no un conteo directo de archivos exitosos.
+- **Decisión de RIMAC:** las fuentes actuales no incluyen un campo que identifique una decisión explícita de no renovar. El KPI se muestra sin valor hasta que negocio proporcione ese atributo, evitando clasificaciones inventadas.
+- **Detalle de Renovación:** una fila por contrato muestra póliza, producto, modalidad, fin de vigencia, días para regularizar, confirmación, recibos, resultado e incidencia. La exportación conserva todas las incidencias y no usa la póliza de conciliación.
 
 ### Definiciones específicas de Cobranza
 
+- **Separación de métricas:** recibos cobrados acumulados, cobrados hoy, cobrados del mes, intentados hoy y efectividad diaria forman el corte fijo. Las conciliaciones, importes y recibos seleccionados responden a los filtros.
 - **Recibos cobrados:** movimientos ICDTCAM cuya fecha real `ICFECOB` está informada. El valor por defecto `01-01-01` se interpreta como no cobrado.
 - **Cobrados hoy/del mes:** recibos ICDTCAM cuya fecha real de cobro `ICFECOB` corresponde al día o mes actual.
 - **Recibos intentados hoy:** recibos con `ICFELIQ` igual a la fecha actual e `ICNUMINT` mayor que cero. La suma de `ICNUMINT` informa el total de intentos realizados sobre esos recibos.
