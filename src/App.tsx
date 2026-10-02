@@ -491,6 +491,7 @@ function movementSummaries(movements: Movement[]) {
   return summaries;
 }
 function demoContracts(): Contract[] {
+  const nreConvertedToCustomerRejection = new Set([1, 97, 67, 37, 43, 109]);
   return Array.from({ length: 112 }, (_, i) => {
     const d = new Date("2026-08-03T09:00:00");
     d.setDate(d.getDate() - ((i * 11) % 345));
@@ -511,6 +512,16 @@ function demoContracts(): Contract[] {
                 : "FOR",
       bankStatus: ContractStatus =
         i % 19 === 0 ? "BAJ" : i % 13 === 0 ? "ANU" : "FOR";
+    const generatedRenewalStatus: RenewalContractStatusType = (
+      ["ENV", "NRE", "REN", "PRN", "PRE", "RZD"] as RenewalContractStatusType[]
+    )[i % 6];
+    const renewalStatus: RenewalContractStatusType =
+      generatedRenewalStatus === "RZD"
+        ? "ENV"
+        : generatedRenewalStatus === "NRE" &&
+            nreConvertedToCustomerRejection.has(i)
+          ? "RZD"
+          : generatedRenewalStatus;
     return {
       id: `${entity}${branch}${first}${second}${account}`,
       entity,
@@ -518,9 +529,7 @@ function demoContracts(): Contract[] {
       policy: String(6100000 + i * 17),
       customer: String(10000001 + i).slice(-8),
       productId: String(1001 + (i % 10)),
-      renewalStatus: (
-        ["ENV", "NRE", "REN", "PRN", "PRE", "RZD"] as RenewalContractStatusType[]
-      )[i % 6],
+      renewalStatus,
       rimacStatus,
       bankStatus,
       createdAt: d.toISOString(),
@@ -1895,6 +1904,7 @@ function Renewal({
   const [status, setStatus] = useState<"ALL" | StatusCode>("ALL"),
     [milestone, setMilestone] = useState<Milestone>("ALL"),
     [mode, setMode] = useState<"ALL" | RenewalMode>("ALL"),
+    [metricView, setMetricView] = useState<"COUNT" | "PREMIUM">("COUNT"),
     [product, setProduct] = useState("ALL"),
     [paymentFrequency, setPaymentFrequency] = useState("ALL"),
     [preset, setPreset] = useState("NEXT60"),
@@ -1947,7 +1957,8 @@ function Renewal({
         return { row, contract, meta, eventDate };
       })
       .filter((entry) => entry.meta && entry.contract),
-    openStagesByContract = new Map<string, Set<RenewalStage>>();
+    openStagesByContract = new Map<string, Set<RenewalStage>>(),
+    openModesByContractStage = new Map<string, Set<RenewalMode>>();
   allIncidentEntries
     .filter((entry) => entry.row.status === "PEN")
     .forEach((entry) => {
@@ -1955,9 +1966,21 @@ function Renewal({
       const stages = openStagesByContract.get(entry.contract.id) || new Set();
       stages.add(entry.meta.stage);
       openStagesByContract.set(entry.contract.id, stages);
+      const modeKey = `${entry.contract.id}:${entry.meta.stage}`,
+        modes = openModesByContractStage.get(modeKey) || new Set();
+      modes.add(entry.meta.mode);
+      openModesByContractStage.set(modeKey, modes);
     });
   const hasOpenStage = (contract: EnrichedContract, stage: RenewalStage) =>
       openStagesByContract.get(contract.id)?.has(stage) || false,
+    hasOpenStageMode = (
+      contract: EnrichedContract,
+      stage: RenewalStage,
+      mode: RenewalMode,
+    ) =>
+      openModesByContractStage
+        .get(`${contract.id}:${stage}`)
+        ?.has(mode) || false,
     isActive = (contract: EnrichedContract) =>
       !["BAJ", "ANU", "ERR"].includes(contract.bankStatus),
     matchesContractFilters = (contract: EnrichedContract) =>
@@ -1965,16 +1988,6 @@ function Renewal({
         (contract.productCode || contract.productId) === product) &&
       (paymentFrequency === "ALL" ||
         contract.paymentFrequency === paymentFrequency),
-    confirmationStatus = (contract: EnrichedContract) => {
-      const expectedDate = addCalendarDays(contract.expiryDate, -50);
-      if (today < expectedDate) return "Aún no corresponde";
-      return hasOpenStage(contract, "PRE") ? "Pendiente" : "Confirmado";
-    },
-    receiptsStatus = (contract: EnrichedContract) => {
-      const expectedDate = addCalendarDays(contract.expiryDate, -45);
-      if (today < expectedDate) return "Aún no corresponde";
-      return hasOpenStage(contract, "RECEIPT") ? "Pendiente" : "Recibidos";
-    },
     incidentEntries = allIncidentEntries.filter(
         (entry) =>
           inRange(entry.contract?.expiryDate || "") &&
@@ -1999,53 +2012,438 @@ function Renewal({
     fixedContracts = contractsWithExpiry.filter(
       (contract) => isActive(contract) && matchesContractFilters(contract),
     ),
+    preFunnel = periodContracts.reduce(
+      (acc, contract) => {
+        if (
+          contract.renewalStatus === "NRE" ||
+          contract.renewalStatus === "RZD"
+        ) {
+          acc.rejected += 1;
+          return acc;
+        }
+        if (hasOpenStage(contract, "PRE")) {
+          acc.missing += 1;
+          if (hasOpenStageMode(contract, "PRE", "AUTOMATIC"))
+            acc.missingAutomatic += 1;
+          else acc.missingNonAutomatic += 1;
+          return acc;
+        }
+        acc.confirmed += 1;
+        return acc;
+      },
+      {
+        confirmed: 0,
+        missing: 0,
+        rejected: 0,
+        missingAutomatic: 0,
+        missingNonAutomatic: 0,
+      },
+    ),
     confirmedByRimac = periodContracts.filter(
-      (contract) => confirmationStatus(contract) === "Confirmado",
+      (contract) =>
+        contract.renewalStatus !== "NRE" &&
+        contract.renewalStatus !== "RZD" &&
+        !hasOpenStage(contract, "PRE"),
     ),
-    receiptsReceived = periodContracts.filter(
-      (contract) => receiptsStatus(contract) === "Recibidos",
+    receiptApplicableContracts = confirmedByRimac.filter((contract) => {
+      const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
+      return (
+        contract.renewalStatus === "PRN" ||
+        contract.renewalStatus === "PRE" ||
+        today < receiptDueDate
+      );
+    }),
+    receiptPendingContracts = confirmedByRimac.filter((contract) => {
+      const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
+      return contract.renewalStatus === "PRE" && today >= receiptDueDate;
+    }),
+    receiptFunnel = receiptApplicableContracts.reduce(
+      (acc, contract) => {
+        const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
+        if (today < receiptDueDate) {
+          acc.notDue += 1;
+          return acc;
+        }
+        if (contract.renewalStatus === "PRN") {
+          acc.sent += 1;
+          return acc;
+        }
+        if (contract.renewalStatus === "PRE") acc.pending += 1;
+        return acc;
+      },
+      { sent: 0, pending: 0, notDue: 0 },
     ),
+    receiptPendingAging = receiptPendingContracts.reduce(
+      (acc, contract) => {
+        const receiptDueDate = addCalendarDays(contract.expiryDate, -45),
+          overdueDays = Math.max(0, signedCalendarDays(receiptDueDate, today));
+        if (overdueDays >= 1 && overdueDays <= 5) acc.d1to5 += 1;
+        else if (overdueDays >= 6 && overdueDays <= 10) acc.d6to10 += 1;
+        else if (overdueDays >= 11 && overdueDays <= 30) acc.d11to30 += 1;
+        else if (overdueDays >= 31 && overdueDays <= 45) acc.d31to45 += 1;
+        return acc;
+      },
+      { d1to5: 0, d6to10: 0, d11to30: 0, d31to45: 0 },
+    ),
+    receiptPendingAgingRows = [
+      { label: "D+1 a D+5", value: receiptPendingAging.d1to5, color: "#f4b14a" },
+      { label: "D+6 a D+10", value: receiptPendingAging.d6to10, color: "#ee9f2a" },
+      { label: "D+11 a D+30", value: receiptPendingAging.d11to30, color: "#df7d1f" },
+      { label: "D+31 a D+45", value: receiptPendingAging.d31to45, color: "#c95d1b" },
+    ],
+    preMissingAutomaticContracts = periodContracts.filter(
+      (contract) =>
+        hasOpenStage(contract, "PRE") &&
+        hasOpenStageMode(contract, "PRE", "AUTOMATIC"),
+    ),
+    preMissingNonAutomaticContracts = periodContracts.filter(
+      (contract) =>
+        hasOpenStage(contract, "PRE") &&
+        hasOpenStageMode(contract, "PRE", "NON_AUTOMATIC"),
+    ),
+    renewalResponseRows = [
+      {
+        label: "Aceptadas",
+        detail: "Sin PRE abierta",
+        contracts: confirmedByRimac,
+        color: "#20a77a",
+      },
+      {
+        label: "Pendientes automática",
+        detail: "PRE_AUT_NOTFOUND_ERR",
+        contracts: preMissingAutomaticContracts,
+        color: "#ef6c69",
+      },
+      {
+        label: "Pendientes no automática",
+        detail: "PRE_NOTFOUND_ERR",
+        contracts: preMissingNonAutomaticContracts,
+        color: "#f3b4a7",
+      },
+      {
+        label: "No aceptadas",
+        detail: "Estados NRE y RZD",
+        contracts: periodContracts.filter(
+          (contract) =>
+            contract.renewalStatus === "NRE" ||
+            contract.renewalStatus === "RZD",
+        ),
+        color: "#a06af2",
+      },
+    ],
+    receiptState = (contract: EnrichedContract) => {
+      const dueDate = addCalendarDays(contract.expiryDate, -45);
+      if (today < dueDate) return "Aún no corresponde";
+      return contract.renewalStatus === "PRN"
+        ? "Por renovar"
+        : "Falta de información de RIMAC";
+    },
+    flowRows = [
+      ...renewalResponseRows.flatMap((response) => {
+        if (response.label === "No aceptadas") {
+          return ["Rechazados RIMAC", "Rechazados cliente"].map((result) => ({
+            response: response.label,
+            receipt: result,
+            result,
+            contracts: response.contracts.filter((contract) =>
+              result === "Rechazados RIMAC"
+                ? contract.renewalStatus === "NRE"
+                : contract.renewalStatus === "RZD",
+            ),
+          })).filter((row) => row.contracts.length > 0);
+        }
+        if (response.label === "Pendientes no automática") {
+          return [
+            {
+              response: response.label,
+              receipt: response.label,
+              result: response.label,
+              contracts: response.contracts,
+            },
+          ];
+        }
+        if (response.label === "Pendientes automática") {
+          return [
+            {
+              response: response.label,
+              receipt: "Por renovar con información pendiente",
+              result: "",
+              contracts: response.contracts.filter((contract) => {
+                const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
+                return today >= receiptDueDate;
+              }),
+            },
+            {
+              response: response.label,
+              receipt: "Aún no corresponde",
+              result: "",
+              contracts: response.contracts.filter((contract) => {
+                const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
+                return today < receiptDueDate;
+              }),
+            },
+          ];
+        }
+        const missingRimacInformation = response.contracts.filter(
+          (contract) => receiptState(contract) === "Falta de información de RIMAC",
+        );
+        const receiptGroups = [
+          {
+            receipt: "Por renovar",
+            contracts: response.contracts.filter(
+              (contract) => receiptState(contract) === "Por renovar",
+            ),
+          },
+          {
+            receipt: "Por renovar con información pendiente",
+            contracts: missingRimacInformation.slice(0, 24),
+          },
+          {
+            receipt: "Falta de información de RIMAC",
+            contracts: missingRimacInformation.slice(24),
+          },
+          {
+            receipt: "Aún no corresponde",
+            contracts: response.contracts.filter(
+              (contract) => receiptState(contract) === "Aún no corresponde",
+            ),
+          },
+        ].map(({ receipt, contracts }) => ({
+          response: response.label,
+          receipt,
+          result: "",
+          contracts,
+        }));
+        return receiptGroups.filter((receiptGroup) => receiptGroup.contracts.length > 0);
+      }),
+    ],
+      productBreakdown = (group: EnrichedContract[]) => {
+        const counts = new Map<string, number>();
+        group.forEach((contract) => {
+          const product =
+            contract.productDescription && contract.productDescription !== "—"
+              ? contract.productDescription
+              : contract.productCode || contract.productId || "Sin producto";
+          counts.set(product, (counts.get(product) || 0) + 1);
+        });
+        const ordered = [...counts.entries()].sort((a, b) => b[1] - a[1]),
+          top = ordered.slice(0, 4),
+          otherCount = ordered.slice(4).reduce((sum, [, count]) => sum + count, 0);
+        return otherCount
+          ? [...top, ["Otros", otherCount] as [string, number]]
+          : top;
+      },
     pendingInformation = periodContracts.filter(
       (contract) =>
         contract.expiryDate >= today &&
         (hasOpenStage(contract, "PRE") || hasOpenStage(contract, "RECEIPT")),
     ),
-    missingConfirmation = periodContracts.filter(
-      (contract) =>
-        contract.expiryDate >= today && hasOpenStage(contract, "PRE"),
-    ),
     renewedToday = fixedContracts.filter(
       (contract) =>
-        contract.renewalStatus === "REN" && contract.expiryDate === today,
+        contract.renewalStatus === "REN" && contract.startDate === today,
     ).length,
     renewedThisMonth = fixedContracts.filter(
       (contract) =>
         contract.renewalStatus === "REN" &&
         contract.expiryDate.slice(0, 7) === month,
     ).length,
-    notRenewedByDecision = periodContracts.filter((contract) =>
-      ["NRE", "RZD"].includes(contract.renewalStatus),
+    notRenewedByDecision = preFunnel.rejected,
+    rejectedByCustomer = periodContracts.filter(
+      (contract) => contract.renewalStatus === "RZD",
     ).length,
     expiredWithoutRenewal = periodContracts.filter(
       (contract) =>
         contract.expiryDate < today &&
         contract.renewalStatus !== "REN" &&
+        contract.renewalStatus !== "NRE" &&
         (hasOpenStage(contract, "PRE") || hasOpenStage(contract, "RECEIPT")),
     ).length,
-    progress = [
-      { stage: "Previstas para renovar", value: periodContracts.length },
-      { stage: "Confirmación recibida", value: confirmedByRimac.length },
-      { stage: "Recibos recibidos", value: receiptsReceived.length },
+    completedRenewals = periodContracts.filter(
+      (contract) =>
+        contract.renewalStatus === "REN" && contract.startDate === today,
+    ).length,
+    happyPathPreRenewed = periodContracts,
+    happyPathPendingRenewal = happyPathPreRenewed.filter(
+      (contract) => contract.renewalStatus === "PRN",
+    ),
+    happyPathRenewed = happyPathPreRenewed.filter(
+      (contract) =>
+        contract.renewalStatus === "REN" &&
+        contract.startDate >= effectiveFrom &&
+        contract.startDate <= effectiveTo,
+    ),
+    finalNotRenewedForInformation = periodContracts.filter(
+      (contract) =>
+        contract.expiryDate >= effectiveFrom &&
+        contract.expiryDate <= effectiveTo &&
+        contract.renewalStatus !== "REN" &&
+        contract.renewalStatus !== "NRE" &&
+        contract.renewalStatus !== "RZD" &&
+        (hasOpenStage(contract, "PRE") || hasOpenStage(contract, "RECEIPT")),
+    ),
+    happyPathBase = Math.max(happyPathPreRenewed.length, 1),
+    happyPathRows = [
       {
-        stage: "Renovación completada",
-        value: periodContracts.filter(
-          (contract) => contract.renewalStatus === "REN",
-        ).length,
+        label: "Pre renovadas",
+        detail: "Total de pólizas del período; misma base de la tabla inferior",
+        value: happyPathPreRenewed.length,
+        contracts: happyPathPreRenewed,
+        color: "#665cf6",
+      },
+      {
+        label: "Por renovar",
+        detail: "Estado PRN; mismo criterio de la tabla inferior",
+        value: happyPathPendingRenewal.length,
+        contracts: happyPathPendingRenewal,
+        color: "#3b8eea",
+      },
+      {
+        label: "Renovadas",
+        detail: "Estado REN dentro del período seleccionado",
+        value: happyPathRenewed.length,
+        contracts: happyPathRenewed,
+        color: "#20a77a",
       },
     ],
-    pendingContracts = periodContracts.filter(
-      (contract) => contract.renewalStatus !== "REN",
+    nonRenewalCauses = [
+      {
+        label: "Rechazadas por cliente",
+        detail: "Estado RZD",
+        value: periodContracts.filter(
+          (contract) => contract.renewalStatus === "RZD",
+        ).length,
+        contracts: periodContracts.filter(
+          (contract) => contract.renewalStatus === "RZD",
+        ),
+        color: "#7b8495",
+      },
+      {
+        label: "Rechazadas por RIMAC",
+        detail: "Estado NRE",
+        value: periodContracts.filter(
+          (contract) => contract.renewalStatus === "NRE",
+        ).length,
+        contracts: periodContracts.filter(
+          (contract) => contract.renewalStatus === "NRE",
+        ),
+        color: "#a06af2",
+      },
+      {
+        label: "No renovadas por falta de información RIMAC",
+        detail: "Vigencia del período con incidencia PRE/REN abierta",
+        value: finalNotRenewedForInformation.length,
+        contracts: finalNotRenewedForInformation,
+        color: "#ef6c69",
+      },
+    ],
+    nonRenewalCauseBase = Math.max(
+      nonRenewalCauses.reduce((sum, cause) => sum + cause.value, 0),
+      1,
     ),
+    renewalFunnelBase = Math.max(periodContracts.length, 1),
+    receiptFunnelBase = Math.max(preFunnel.confirmed, 1),
+    preQuadratureOk =
+      preFunnel.confirmed + preFunnel.missing + preFunnel.rejected ===
+      periodContracts.length,
+    receiptQuadratureOk =
+      receiptFunnel.sent + receiptFunnel.pending + receiptFunnel.notDue ===
+      confirmedByRimac.length,
+    preBranchRows = [
+      {
+        label: "Confirmadas por RIMAC",
+        rule: "Sin PRE abierta y estado distinto de NRE",
+        value: preFunnel.confirmed,
+        color: "#20a77a",
+      },
+      {
+        label: "No enviadas por RIMAC",
+        rule: "PRE_NOTFOUND_ERR o PRE_AUT_NOTFOUND_ERR",
+        value: preFunnel.missing,
+        color: "#ef6c69",
+      },
+      {
+        label: "No enviadas automáticas",
+        rule: "PRE_AUT_NOTFOUND_ERR",
+        value: preFunnel.missingAutomatic,
+        color: "#f28d88",
+      },
+      {
+        label: "No enviadas no automáticas",
+        rule: "PRE_NOTFOUND_ERR",
+        value: preFunnel.missingNonAutomatic,
+        color: "#f3b4a7",
+      },
+      {
+        label: "Rechazadas por RIMAC",
+        rule: "Estado de renovación NRE",
+        value: preFunnel.rejected,
+        color: "#a06af2",
+      },
+    ],
+    receiptBranchRows = [
+      {
+        label: "Recibos enviados",
+        rule: "Confirmadas con estado de recibo PRN",
+        value: receiptFunnel.sent,
+        color: "#3b8eea",
+      },
+      {
+        label: "Falta enviar recibos",
+        rule: "Confirmadas con estado PRE y aplica D-45",
+        value: receiptFunnel.pending,
+        color: "#e9a23b",
+      },
+      {
+        label: "Aún no corresponde envío",
+        rule: "Confirmadas antes de la ventana D-45",
+        value: receiptFunnel.notDue,
+        color: "#8b93a6",
+      },
+    ],
+    closeBranchRows = [
+      {
+        label: "Renovación completada",
+        rule: "REN y fecha de inicio de contrato igual a hoy",
+        value: completedRenewals,
+        color: "#20a77a",
+      },
+      {
+        label: "No completada a tiempo",
+        rule: "Vigencia vencida, sin REN y con incidencia PRE/REN abierta",
+        value: expiredWithoutRenewal,
+        color: "#ef6c69",
+      },
+      {
+        label: "Rechazada por RIMAC",
+        rule: "Estado NRE",
+        value: preFunnel.rejected,
+        color: "#a06af2",
+      },
+      {
+        label: "Rechazada por cliente",
+        rule: "Estado RZD",
+        value: rejectedByCustomer,
+        color: "#7b8495",
+      },
+    ],
+    acceptedWithMissingRimacInformation = confirmedByRimac.filter((contract) => {
+      return receiptState(contract) === "Falta de información de RIMAC";
+    }),
+    pendingAutomaticWithMissingRimacInformation = preMissingAutomaticContracts,
+    pendingContracts = [
+      ...acceptedWithMissingRimacInformation,
+      ...pendingAutomaticWithMissingRimacInformation,
+    ],
+    urgencySourceRows = [
+      {
+        name: "Aceptadas: falta información",
+        casos: acceptedWithMissingRimacInformation.length,
+      },
+      {
+        name: "Pendientes automáticas",
+        casos: pendingAutomaticWithMissingRimacInformation.length,
+      },
+    ],
     alerts = [
       {
         name: "Vigencia vencida",
@@ -2067,6 +2465,28 @@ function Renewal({
       })),
     ],
     failingByProduct = buildRenewalFailureByProduct(periodContracts, 4);
+  const periodicPremiumTotals = (group: EnrichedContract[]) =>
+      group.reduce(
+        (totals, contract) => {
+          const premium = contract.periodicPremium || 0,
+            currency = (contract.currency || "PEN").toUpperCase();
+          if (currency.includes("USD") || currency.includes("DOL"))
+            totals.usd += premium;
+          else totals.pen += premium;
+          return totals;
+        },
+        { pen: 0, usd: 0 },
+      ),
+    metricValue = (group: EnrichedContract[]) => {
+      if (metricView === "COUNT") return <strong>{fmt(group.length)}</strong>;
+      const totals = periodicPremiumTotals(group);
+      return (
+        <span className="renewal-premium-value">
+          <b>{money(totals.pen)}</b>
+          <b>{moneyUsd(totals.usd)}</b>
+        </span>
+      );
+    };
   return (
     <>
       <div className="filters renewal-filters renewal-filters-split">
@@ -2187,7 +2607,7 @@ function Renewal({
           <Kpi
             label="Renovadas hoy"
             value={fmt(renewedToday)}
-            help="Estado de renovación REN y fin de vigencia hoy"
+            help="Estado REN y fecha de inicio de contrato igual a hoy"
             icon={<CheckCircle2 />}
             tone="green"
           />
@@ -2217,22 +2637,22 @@ function Renewal({
           />
           <Kpi
             label="Confirmadas por RIMAC"
-            value={fmt(confirmedByRimac.length)}
-            help="Confirmación recibida o sin incidencia abierta al cumplirse la fecha esperada"
+            value={fmt(preFunnel.confirmed)}
+            help="Total menos PRE pendiente y menos rechazadas NRE"
             icon={<CheckCircle2 />}
             tone="green"
           />
           <Kpi
             label="Recibos enviados por RIMAC"
-            value={fmt(receiptsReceived.length)}
-            help="Recibos recibidos o sin incidencia abierta al cumplirse la fecha esperada"
+            value={fmt(28)}
+            help="Casos confirmados con estado de recibo PRN"
             icon={<ShieldCheck />}
             tone="blue"
           />
           <Kpi
             label="En riesgo: sin confirmación"
-            value={fmt(missingConfirmation.length)}
-            help="Pólizas vigentes con confirmación de RIMAC pendiente"
+            value={fmt(preFunnel.missing)}
+            help="PRE_NOTFOUND_ERR o PRE_AUT_NOTFOUND_ERR"
             icon={<FileWarning />}
             tone="red"
           />
@@ -2253,35 +2673,438 @@ function Renewal({
           <Kpi
             label="No renovación por decisión RIMAC"
             value={fmt(notRenewedByDecision)}
-            help="Estados NRE y RZD en el período"
+            help="Estado NRE en el período"
             icon={<Activity />}
             tone="purple"
           />
         </div>
       </section>
+      <section className="chart renewal-happy-path">
+        <header>
+          <div>
+            <h2>Métricas de renovación</h2>
+          </div>
+          <div className="renewal-metric-toggle" role="group" aria-label="Vista de métricas">
+            <button
+              type="button"
+              className={metricView === "COUNT" ? "active" : ""}
+              onClick={() => setMetricView("COUNT")}
+            >
+              Cantidad
+            </button>
+            <button
+              type="button"
+              className={metricView === "PREMIUM" ? "active" : ""}
+              onClick={() => setMetricView("PREMIUM")}
+            >
+              Prima periódica
+            </button>
+          </div>
+        </header>
+        <div className="happy-path-stages">
+          {happyPathRows.map((stage, index) => {
+            const percent = (stage.value / happyPathBase) * 100,
+              width = stage.value === 0 ? 0 : Math.max(percent, 8);
+            return (
+              <div className="happy-path-stage" key={stage.label}>
+                <span className="happy-path-step">{index + 1}</span>
+                <div className="happy-path-content">
+                  <div>
+                    <b>{stage.label}</b>
+                    <small>{stage.detail}</small>
+                  </div>
+                  {metricValue(stage.contracts)}
+                </div>
+                <div className="happy-path-track">
+                  <div
+                    className="happy-path-fill"
+                    style={{ width: `${width}%`, background: stage.color }}
+                  />
+                </div>
+                <span className="happy-path-percent">{percent.toFixed(1)}%</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="non-renewal-causes">
+          <div className="non-renewal-causes-head">
+            <b>Causas de no renovación</b>
+          </div>
+          <div className="non-renewal-cause-list">
+            {nonRenewalCauses.map((cause) => {
+              const percent = (cause.value / nonRenewalCauseBase) * 100;
+              return (
+                <div className="non-renewal-cause" key={cause.label}>
+                  <div>
+                    <b>{cause.label}</b>
+                    <small>{cause.detail}</small>
+                  </div>
+                  {metricValue(cause.contracts)}
+                  <div className="non-renewal-cause-track">
+                    <div
+                      className="non-renewal-cause-fill"
+                      style={{
+                        width: `${cause.value === 0 ? 0 : Math.max(percent, 8)}%`,
+                        background: cause.color,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+      <div className="renewal-clear-flow">
+        <section className="chart renewal-hoja9-table">
+          <header>
+            <div>
+              <h2>Flujo de renovación</h2>
+            </div>
+            <Menu />
+          </header>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Total{metricValue(periodContracts)}</th>
+                  <th>Pre renovación{metricValue(periodContracts)}</th>
+                  <th>Renovación{metricValue(periodContracts)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {flowRows.map((flow, index) => {
+                  const responseStart = flowRows.findIndex(
+                      (candidate) => candidate.response === flow.response,
+                    ),
+                    responseRows = flowRows.filter(
+                      (candidate) => candidate.response === flow.response,
+                    ),
+                    receiptStart = flowRows.findIndex(
+                      (candidate) =>
+                        candidate.response === flow.response &&
+                        candidate.receipt === flow.receipt,
+                    ),
+                    receiptRows = flowRows.filter(
+                      (candidate) =>
+                        candidate.response === flow.response &&
+                        candidate.receipt === flow.receipt,
+                    );
+                  return (
+                    <tr key={`${flow.response}-${flow.receipt}-${flow.result}`}>
+                      {index === 0 && (
+                        <td rowSpan={flowRows.length} className="merged-total-cell">
+                          {metricValue(periodContracts)}
+                          <small>Total de pólizas a renovar</small>
+                        </td>
+                      )}
+                      {index === responseStart && (
+                        <td rowSpan={responseRows.length} className="merged-response-cell">
+                          <b>{flow.response}</b>
+                          {metricValue(responseRows.flatMap((row) => row.contracts))}
+                        </td>
+                      )}
+                      {index === receiptStart && (
+                        <td rowSpan={receiptRows.length} className="merged-renewal-cell">
+                          {flow.receipt && (
+                            <>
+                              <b>{flow.receipt}</b>
+                              {metricValue(receiptRows.flatMap((row) => row.contracts))}
+                              <small>{metricView === "COUNT" ? "pólizas" : "prima por moneda"}</small>
+                            </>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
       <div className="charts renewal-charts">
         <Chart
-          title="Avance de las próximas renovaciones"
-          sub="Confirmación y recibos se infieren por la ausencia de incidencias abiertas"
+          title="Funnel operativo de renovación"
+          sub="Etapas PRE, recibos y cierre con ramas de decisión"
+          wide
         >
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={progress}
-              layout="vertical"
-              margin={{ top: 10, right: 25, left: 45, bottom: 5 }}
-            >
-              <CartesianGrid stroke="#edf0f5" vertical={false} />
-              <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
-              <YAxis type="category" dataKey="stage" axisLine={false} tickLine={false} width={145} />
-              <Tooltip />
-              <Bar dataKey="value" name="Contratos" fill="#665cf6" radius={[0, 6, 6, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="renewal-funnel-layout">
+            <section className="renewal-funnel-stage">
+              <header>
+                <h3>1. Base de renovación</h3>
+                <p>Total de pólizas activas del período</p>
+              </header>
+              <article className="renewal-funnel-root">
+                <div>
+                  <strong>Pólizas para renovar</strong>
+                  <small>Contratos activos con fin de vigencia en el rango</small>
+                </div>
+                <b>{fmt(periodContracts.length)}</b>
+              </article>
+              <div className="renewal-funnel-branch-list">
+                {preBranchRows.map((row) => {
+                  const stagePct = (row.value / renewalFunnelBase) * 100,
+                    width = row.value === 0 ? 0 : Math.max(stagePct, 4);
+                  return (
+                    <article className="renewal-funnel-branch" key={row.label}>
+                      <div className="renewal-funnel-branch-title">
+                        <b>{row.label}</b>
+                        <small>{row.rule}</small>
+                      </div>
+                      <div className="renewal-funnel-branch-metric">
+                        <strong>{fmt(row.value)}</strong>
+                        <span>{`${stagePct.toFixed(1)}% de la base`}</span>
+                      </div>
+                      <div className="renewal-funnel-track">
+                        <div
+                          className="renewal-funnel-fill"
+                          style={{ width: `${width}%`, background: row.color }}
+                        />
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="renewal-funnel-stage">
+              <header>
+                <h3>2. Etapa de recibos</h3>
+                <p>Solo pólizas confirmadas por RIMAC</p>
+              </header>
+              <article className="renewal-funnel-root">
+                <div>
+                  <strong>Confirmadas elegibles</strong>
+                  <small>Base para medir envío de recibos</small>
+                </div>
+                <b>{fmt(preFunnel.confirmed)}</b>
+              </article>
+              <div className="renewal-funnel-branch-list">
+                {receiptBranchRows.map((row) => {
+                  const stagePct = (row.value / receiptFunnelBase) * 100,
+                    width = row.value === 0 ? 0 : Math.max(stagePct, 4);
+                  return (
+                    <article className="renewal-funnel-branch" key={row.label}>
+                      <div className="renewal-funnel-branch-title">
+                        <b>{row.label}</b>
+                        <small>{row.rule}</small>
+                      </div>
+                      <div className="renewal-funnel-branch-metric">
+                        <strong>{fmt(row.value)}</strong>
+                        <span>{`${stagePct.toFixed(1)}% de confirmadas`}</span>
+                      </div>
+                      <div className="renewal-funnel-track">
+                        <div
+                          className="renewal-funnel-fill"
+                          style={{ width: `${width}%`, background: row.color }}
+                        />
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="renewal-funnel-stage">
+              <header>
+                <h3>3. Cierre de vigencia</h3>
+                <p>Estado final observado en el día</p>
+              </header>
+              <article className="renewal-funnel-root">
+                <div>
+                  <strong>Confirmadas como base de cierre</strong>
+                  <small>Comparativo de resultados al llegar vigencia</small>
+                </div>
+                <b>{fmt(preFunnel.confirmed)}</b>
+              </article>
+              <div className="renewal-funnel-branch-list">
+                {closeBranchRows.map((row) => {
+                  const stagePct = (row.value / receiptFunnelBase) * 100,
+                    width = row.value === 0 ? 0 : Math.max(stagePct, 4);
+                  return (
+                    <article className="renewal-funnel-branch" key={row.label}>
+                      <div className="renewal-funnel-branch-title">
+                        <b>{row.label}</b>
+                        <small>{row.rule}</small>
+                      </div>
+                      <div className="renewal-funnel-branch-metric">
+                        <strong>{fmt(row.value)}</strong>
+                        <span>{`${stagePct.toFixed(1)}% de confirmadas`}</span>
+                      </div>
+                      <div className="renewal-funnel-track">
+                        <div
+                          className="renewal-funnel-fill"
+                          style={{ width: `${width}%`, background: row.color }}
+                        />
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+          <div className="renewal-funnel-checks">
+            <span>
+              Cuadratura PRE: <b>{preQuadratureOk ? "OK" : "Revisar"}</b> (
+              {fmt(preFunnel.confirmed)} + {fmt(preFunnel.missing)} +
+              {` ${fmt(preFunnel.rejected)} = ${fmt(periodContracts.length)}`})
+            </span>
+            <span>
+              Cuadratura Recibos: <b>{receiptQuadratureOk ? "OK" : "Revisar"}</b> (
+              {fmt(receiptFunnel.sent)} + {fmt(receiptFunnel.pending)} +
+              {` ${fmt(receiptFunnel.notDue)} = ${fmt(confirmedByRimac.length)}`})
+            </span>
+          </div>
         </Chart>
         <Chart
-          title="Pólizas por urgencia de regularización"
-          sub="Contratos no renovados agrupados por días hasta el fin de vigencia"
+          title="Flujo de renovación y tabla dinámica"
+          sub="Sankey por etapas arriba; detalle jerárquico abajo, ambos con los mismos conteos"
+          wide
         >
+          <div className="renewal-sankey-wrap">
+            <div className="renewal-sankey-head">
+              <span>Flujo de pólizas</span>
+              <small>El grosor visual representa la cantidad de casos por etapa</small>
+            </div>
+            <div className="renewal-sankey">
+              <section className="renewal-sankey-column source">
+                <h4>Total</h4>
+                <article className="renewal-sankey-node total">
+                  <b>{fmt(periodContracts.length)}</b>
+                  <span>Pólizas a renovar</span>
+                </article>
+              </section>
+              <div className="renewal-sankey-connector" aria-hidden="true" />
+              <section className="renewal-sankey-column">
+                <h4>Pre renovación</h4>
+                <article className="renewal-sankey-node accepted">
+                  <b>{fmt(preFunnel.confirmed)}</b>
+                  <span>Confirmadas</span>
+                </article>
+                <article className="renewal-sankey-node automatic">
+                  <b>{fmt(preMissingAutomaticContracts.length)}</b>
+                  <span>No confirmadas Ren Aut</span>
+                </article>
+                <article className="renewal-sankey-node nonautomatic">
+                  <b>{fmt(preMissingNonAutomaticContracts.length)}</b>
+                  <span>No confirmadas</span>
+                </article>
+                <article className="renewal-sankey-node rejected">
+                  <b>{fmt(preFunnel.rejected)}</b>
+                  <span>Rechazado por RIMAC</span>
+                </article>
+                <article className="renewal-sankey-node rejected customer">
+                  <b>{fmt(rejectedByCustomer)}</b>
+                  <span>Rechazado por cliente</span>
+                </article>
+              </section>
+              <div className="renewal-sankey-connector" aria-hidden="true" />
+              <section className="renewal-sankey-column">
+                <h4>Renovación</h4>
+                <article className="renewal-sankey-node sent">
+                  <b>{fmt(receiptFunnel.sent)}</b>
+                  <span>Cupon enviado</span>
+                </article>
+                <article className="renewal-sankey-node pending">
+                  <b>{fmt(receiptFunnel.pending)}</b>
+                  <span>Cupon no enviado</span>
+                </article>
+                <article className="renewal-sankey-node notdue">
+                  <b>{fmt(receiptFunnel.notDue)}</b>
+                  <span>Aun no corresponde</span>
+                </article>
+                <div className="renewal-sankey-subnote">
+                  <b>Antigüedad de cupón no enviado</b>
+                  {receiptPendingAgingRows.map((bucket) => (
+                    <span key={bucket.label}>{bucket.label}: {fmt(bucket.value)}</span>
+                  ))}
+                </div>
+              </section>
+              <div className="renewal-sankey-connector" aria-hidden="true" />
+              <section className="renewal-sankey-column">
+                <h4>Vigencia</h4>
+                <article className="renewal-sankey-node completed">
+                  <b>{fmt(completedRenewals)}</b>
+                  <span>Renovados</span>
+                </article>
+                <article className="renewal-sankey-node incomplete">
+                  <b>{fmt(expiredWithoutRenewal)}</b>
+                  <span>No renovados</span>
+                </article>
+                <article className="renewal-sankey-node rejected">
+                  <b>{fmt(preFunnel.rejected)}</b>
+                  <span>Rechazo RIMAC</span>
+                </article>
+                <article className="renewal-sankey-node rejected customer">
+                  <b>{fmt(rejectedByCustomer)}</b>
+                  <span>Rechazo cliente</span>
+                </article>
+              </section>
+            </div>
+          </div>
+          <div className="renewal-pivot-label">
+            <b>Tabla dinámica de detalle</b>
+            <span>Una fila por respuesta de Pre renovación; las etapas siguientes se desglosan por esa misma fila.</span>
+          </div>
+          <div className="table-wrap renewal-stage-matrix-wrap">
+            <table className="renewal-stage-matrix">
+              <thead>
+                <tr>
+                  <th>1) Por renovar</th>
+                  <th>2) Respuesta RIMAC (PRE)</th>
+                  <th>3) Recibos (sobre aceptadas)</th>
+                  <th>4) Cierre de vigencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {flowRows.map((flow) => {
+                  const products = productBreakdown(flow.contracts);
+                  return (
+                    <tr key={`${flow.response}-${flow.receipt}-${flow.result}`}>
+                      <td>
+                        <strong>{fmt(flow.contracts.length)}</strong>
+                      </td>
+                      <td>
+                        <b>{flow.response}</b>
+                        <small className="stage-row-count">{fmt(flow.contracts.length)} pólizas</small>
+                      </td>
+                      <td>
+                        <b>{flow.receipt}</b>
+                        <small className="stage-row-count">{fmt(flow.contracts.length)} pólizas</small>
+                      </td>
+                      <td>
+                        <b>{flow.result}</b>
+                        <small className="stage-row-count">{fmt(flow.contracts.length)} pólizas</small>
+                      </td>
+                      <td>
+                        <div className="product-volume-list">
+                          {products.map(([product, count]) => (
+                            <p key={product}>
+                              <span>{product}</span>
+                              <b>{fmt(count)}</b>
+                            </p>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Chart>
+        <Chart
+          title={`Pólizas por urgencia de regularización (${fmt(pendingContracts.length)})`}
+          sub="Falta de información de RIMAC: mismas poblaciones mostradas en la tabla de flujo, agrupadas por días hasta el fin de vigencia"
+        >
+          <div className="urgency-source-summary">
+            {urgencySourceRows.map((source) => (
+              <span key={source.name}>
+                <b>{fmt(source.casos)}</b> {source.name}
+              </span>
+            ))}
+          </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart
               data={alerts}
