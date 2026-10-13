@@ -21,7 +21,7 @@
 - Mantener un diccionario independiente por fuente en `docs/fuentes`, con campo, descripción, tipo y longitud. Si falta algún dato, solicitarlo a negocio en lugar de inventarlo.
 - Mantener React y TypeScript.
 - Conservar la secuencia visual por proceso: filtros, KPIs, gráficos y tabla.
-- En Renovación, Cancelación y Cobranza separar visualmente el corte fijo de hoy/mes de las métricas variables; indicar expresamente cuáles tarjetas no responden a filtros.
+- En Renovación, Cancelación y Cobranza no mostrar un corte fijo de hoy/mes; sus métricas generales responden al contexto indicado en cada visual.
 - Mantener filtros de producto y frecuencia de pago en Renovación, Cancelación y Cobranza. La frecuencia se obtiene de `ICDTCAP.CAP-ICTFOPAG` y admite Mensual, Trimestral, Bimestral, Semestral y Anual.
 - Los procesos de conciliación válidos son CAN, REN e INV.
 - Los estados válidos son PEN y SOL.
@@ -60,7 +60,7 @@
 - En Renovación considerar efectiva una renovación cuando `CONTRACT_RENEWAL_STATUS_TYPE` sea `REN` y usar `CAP-ICFVENPO` como fin de vigencia.
 - Clasificar `PRE_NOTFOUND_ERR` y `PRE_AUT_NOTFOUND_ERR` como confirmación pendiente, y `REN_NOTFOUND_ERR` y `REN_AUT_NOTFOUND_ERR` como recibos pendientes. El sufijo `AUT` solo clasifica la incidencia; no inferir modalidad para contratos sin incidencia.
 - En Renovación interpretar `PEN` como información faltante abierta y `SOL` como información recibida posteriormente; no inventar el motivo del cierre ni equiparar directamente `SOL` con el archivo exitoso.
-- No atribuir una no renovación a una decisión de RIMAC sin un campo explícito de decisión o motivo; las fuentes actuales no lo contienen.
+- Interpretar `NRE` como rechazo de renovación por RIMAC y `RZD` como rechazo del cliente.
 - En el detalle de Renovación obtener póliza e `INSURANCE_PRODUCT_ID` desde `MAESTRA_CONTRATOS` y modalidad desde `CAP-ICCMOD01`; mostrar días hasta `CAP-ICFVENPO`, no mostrar proceso ni usar la póliza de conciliación.
 - Para cancelados usar `CONTRACT_STATUS_ID` del Banco: `BAJ` con `CAP-ICFBAIXA` y `ANU` con `CAP-ICFANCON`.
 - No representar backlog histórico mensual de conciliaciones sin snapshots o historial de transiciones; diferenciar aperturas por `CREATION_DATE` y resoluciones `SOL` por `AUDIT_DATE`.

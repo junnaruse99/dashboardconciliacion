@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# CODEGRAPH_START
+.codegraph/
+.cursor/
+.github/hooks/
+.github/skills/
+.codex/
+.agents/
+# CODEGRAPH_END

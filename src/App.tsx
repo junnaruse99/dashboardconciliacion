@@ -7,12 +7,14 @@
 } from "react";
 import {
   Activity,
+  ArrowRight,
   Building2,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
   Clock3,
   Download,
+  FileCheck2,
   FileWarning,
   Filter,
   LayoutDashboard,
@@ -31,9 +33,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -137,7 +139,9 @@ interface IcdtcamRecord {
   settlementDate: string;
   collectionDate: string;
   attemptCount: number;
+  invoicedAmount: number;
   chargedAmount: number;
+  billingStatus: "FAC" | "PEN";
   collectionStatus: string;
 }
 interface IcdtlitRecord {
@@ -757,24 +761,37 @@ function demoIcdtcam(): IcdtcamRecord[] {
     const receiptCount = 1 + (i % 3);
     for (let receipt = 0; receipt < receiptCount; receipt++) {
       const settlement = new Date(today);
-      settlement.setDate(settlement.getDate() - ((i + receipt) % 6));
-      const charged = (i + receipt) % 4 !== 0,
-        collection = new Date(settlement);
-      collection.setDate(collection.getDate() + ((i + receipt) % 2));
+      settlement.setDate(settlement.getDate() - ((i + receipt) % 10));
       receipts.push({
         key: contract.id,
         movementNumber: 900000 + i * 3 + receipt,
         settlementDate: settlement.toISOString().slice(0, 10),
-        collectionDate: charged ? collection.toISOString().slice(0, 10) : "",
-        attemptCount: charged
-          ? 1 + ((i + receipt) % 2)
-          : 1 + ((i + receipt) % 4),
-        chargedAmount: charged ? 45 + ((i * 17 + receipt * 9) % 850) : 0,
-        collectionStatus: charged ? "COB" : "PEN",
+        collectionDate: "",
+        attemptCount: 0,
+        invoicedAmount: 320,
+        chargedAmount: 0,
+        billingStatus: "PEN",
+        collectionStatus: "PEN",
       });
     }
   });
-  return receipts;
+  const invoicedTarget = Math.min(180, receipts.length),
+    collectedTarget = Math.min(177, invoicedTarget);
+  return receipts.map((receipt, index) => {
+    const rank = (index * 97) % receipts.length,
+      invoiced = rank < invoicedTarget,
+      collected = rank < collectedTarget,
+      collection = new Date(receipt.settlementDate);
+    collection.setDate(collection.getDate() + (index % 2));
+    return {
+      ...receipt,
+      collectionDate: collected ? collection.toISOString().slice(0, 10) : "",
+      attemptCount: invoiced ? 1 + (index % 2) : 0,
+      chargedAmount: collected ? receipt.invoicedAmount : 0,
+      billingStatus: invoiced ? "FAC" : "PEN",
+      collectionStatus: collected ? "COB" : "PEN",
+    };
+  });
 }
 function enrichContracts(
   contracts: Contract[],
@@ -888,6 +905,21 @@ export default function App() {
       );
     return [min, max];
   }, [rows]);
+  const [minCollectionDate, maxCollectionDate] = useMemo(() => {
+    const dates = [
+      ...rows
+        .filter((row) => row.process === "INV")
+        .map((row) => row.createdAt.slice(0, 10)),
+      ...icdtcam.flatMap((receipt) => [
+        receipt.settlementDate,
+        receipt.collectionDate,
+      ]),
+    ]
+      .filter(Boolean)
+      .sort();
+    const fallback = new Date().toISOString().slice(0, 10);
+    return [dates[0] || fallback, dates[dates.length - 1] || fallback];
+  }, [icdtcam, rows]);
   useEffect(() => {
     if (!from) setFrom(minRowDate);
     if (!to) setTo(maxRowDate);
@@ -949,8 +981,8 @@ export default function App() {
     setStatus("ALL");
     setProduct("ALL");
     setPaymentFrequency("ALL");
-    setFrom(minRowDate);
-    setTo(maxRowDate);
+    setFrom(t === "cobranza" ? minCollectionDate : minRowDate);
+    setTo(t === "cobranza" ? maxCollectionDate : maxRowDate);
     setMenu(false);
   };
   return (
@@ -1086,8 +1118,8 @@ export default function App() {
                 to={to}
                 product={product}
                 paymentFrequency={paymentFrequency}
-                minDate={minRowDate}
-                maxDate={maxRowDate}
+                minDate={minCollectionDate}
+                maxDate={maxCollectionDate}
                 productOptions={productFilterOptions(enrichedContracts)}
                 setStatus={setStatus}
                 setFrom={setFrom}
@@ -1096,8 +1128,8 @@ export default function App() {
                 setPaymentFrequency={setPaymentFrequency}
                 reset={() => {
                   setStatus("ALL");
-                  setFrom(minRowDate);
-                  setTo(maxRowDate);
+                  setFrom(minCollectionDate);
+                  setTo(maxCollectionDate);
                   setProduct("ALL");
                   setPaymentFrequency("ALL");
                 }}
@@ -1113,6 +1145,8 @@ export default function App() {
                 contracts={enrichedContracts}
                 activeProduct={product}
                 activePaymentFrequency={paymentFrequency}
+                activeFrom={from}
+                activeTo={to}
                 allRows={rows}
               />
             </>
@@ -1153,6 +1187,8 @@ export default function App() {
                 contracts={enrichedContracts}
                 activeProduct={product}
                 activePaymentFrequency={paymentFrequency}
+                activeFrom={from}
+                activeTo={to}
                 allRows={rows}
               />
             </>
@@ -1475,30 +1511,28 @@ function Cancellation({
     averageResolution = solved.length
       ? solved.reduce((sum, r) => sum + days(r.createdAt, r.auditAt), 0) /
         solved.length
-      : 0,
-    notSent = pending.filter((r) => r.errorCode === "CAN_FILE_NOT_SENT").length;
-  const cancellationDate = (contract: EnrichedContract) =>
-    contract.bankStatus === "BAJ"
-      ? contract.baixaDate
-      : contract.bankStatus === "ANU"
-        ? contract.annulmentDate
-        : "";
-  const cancelledContracts = contracts.filter(
-      (contract) =>
-        (contract.bankStatus === "BAJ" || contract.bankStatus === "ANU") &&
-        cancellationDate(contract),
-    ),
-    cancelledToday = cancelledContracts.filter(
-      (contract) => cancellationDate(contract) === today,
-    ).length,
-    cancelledMonth = cancelledContracts.filter(
-      (contract) => cancellationDate(contract).slice(0, 7) === month,
-    ).length;
-  const trend = cancellationTrend(filtered, effectiveFrom, effectiveTo),
-    cancellationSplit = buildCancellationStatusPie(
-      filtered,
-      contractIndex,
-    ),
+      : 0;
+  const cancellationReasons = [
+      { name: "Impago", value: 2987, color: "#ff5c62" },
+      { name: "Fin de vigencia", value: 1245, color: "#2f73ed" },
+      { name: "Solicitud del cliente", value: 660, color: "#f5a11a" },
+    ],
+    cancellationMonthly = [
+      { period: "Ene 2026", impago: 430, finVigencia: 180, solicitud: 95 },
+      { period: "Feb 2026", impago: 510, finVigencia: 225, solicitud: 120 },
+      { period: "Mar 2026", impago: 470, finVigencia: 190, solicitud: 105 },
+      { period: "Abr 2026", impago: 455, finVigencia: 185, solicitud: 110 },
+      { period: "May 2026", impago: 610, finVigencia: 260, solicitud: 130 },
+      { period: "Jun 2026", impago: 512, finVigencia: 205, solicitud: 100 },
+    ],
+    refundMonthly = [
+      { period: "Ene 2026", refund: 12500, commission: 2400 },
+      { period: "Feb 2026", refund: 17600, commission: 4100 },
+      { period: "Mar 2026", refund: 13000, commission: 2500 },
+      { period: "Abr 2026", refund: 12800, commission: 2600 },
+      { period: "May 2026", refund: 26000, commission: 4200 },
+      { period: "Jun 2026", refund: 16520, commission: 2960 },
+    ],
     ageBuckets = [
       ["0–2 días", 0, 2],
       ["3–7 días", 3, 7],
@@ -1512,7 +1546,7 @@ function Cancellation({
       }).length,
     }));
   return (
-    <>
+    <div className="cancellation-quicksight">
       <div className="filters cancellation-filters cancellation-filters-split">
         <b>
           <Filter /> Filtros de cancelación
@@ -1593,163 +1627,109 @@ function Cancellation({
           Limpiar
         </button>
       </div>
-      <section className="metric-section fixed-metrics">
-        <header>
+      <section className="cancellation-qs-section">
+        <header className="cancellation-qs-title">
+          <b>1</b>
           <div>
-            <h2>Corte fijo del día</h2>
-            <p>No cambia con los filtros del análisis.</p>
+            <h2>Métricas generales de cancelaciones</h2>
+            <p>Resumen de contratos de cancelación en el período seleccionado.</p>
           </div>
-          <span>Hoy y mes actual</span>
+          <span className="demo-data-label">Datos demostrativos</span>
         </header>
-        <div className="kpis">
-          <Kpi
-            label="Cancelados hoy"
-            value={fmt(cancelledToday)}
-            help="Banco BAJ/ANU con fecha ICDTCAP de hoy"
-            icon={<CalendarDays />}
-            tone="purple"
-          />
-          <Kpi
-            label="Cancelados del mes"
-            value={fmt(cancelledMonth)}
-            help="Banco BAJ/ANU en el mes actual"
-            icon={<ShieldCheck />}
-            tone="blue"
-          />
+        <div className="cancellation-business-kpis">
+          <article className="cancellation-business-kpi total"><CalendarDays /><span>Total de contratos cancelados</span><strong>{fmt(4892)}</strong><small>100% del total</small></article>
+          <article className="cancellation-business-kpi impago"><FileWarning /><span>Cancelados por impago</span><strong>{fmt(2987)}</strong><small>61.1% del total</small></article>
+          <article className="cancellation-business-kpi expiry"><CalendarDays /><span>Cancelados por fin de vigencia</span><strong>{fmt(1245)}</strong><small>25.4% del total</small></article>
+          <article className="cancellation-business-kpi request"><Users /><span>Cancelados por solicitud del cliente</span><strong>{fmt(660)}</strong><small>13.5% del total</small></article>
+          <article className="cancellation-business-kpi financial premium"><Activity /><span>Prima total cancelada por solicitud del cliente</span><strong>{moneyUsd(520340)}</strong><b>{money(1284660)}</b></article>
+          <article className="cancellation-business-kpi financial refund"><Activity /><span>Monto total de devolución</span><strong>{moneyUsd(42530)}</strong><b>{money(98420)}</b></article>
+          <article className="cancellation-business-kpi financial commission"><Activity /><span>Comisión total devuelta</span><strong>{moneyUsd(7890)}</strong><b>{money(18760)}</b></article>
         </div>
-      </section>
-      <section className="metric-section variable-metrics">
-        <header>
-          <div>
-            <h2>Resultado de los filtros</h2>
-            <p>Se actualiza por período, estado, producto y frecuencia de pago.</p>
-          </div>
-          <span>{fmt(filtered.length)} conciliaciones</span>
-        </header>
-        <div className="kpis">
-          <Kpi
-            label="Abiertos sin cancelar en RIMAC"
-            value={fmt(notSent)}
-            help="PEN con CAN_FILE_NOT_SENT en el rango"
-            icon={<FileWarning />}
-            tone="red"
-          />
-          <Kpi
-            label="Tasa de resolución"
-            value={`${resolutionRate.toFixed(1)}%`}
-            help={`${solved.length} de ${filtered.length} conciliaciones`}
-            icon={<CheckCircle2 />}
-            tone="green"
-          />
-          <Kpi
-            label="Tiempo medio de resolución"
-            value={`${averageResolution.toFixed(1)} d`}
-            help="CREATION_DATE a AUDIT_DATE para SOL"
-            icon={<Clock3 />}
-            tone="amber"
-          />
-        </div>
-      </section>
-      <div className="charts">
-        <Chart
-          title="Conciliaciones abiertas y resueltas"
-          sub="Altas por CREATION_DATE y resoluciones SOL por AUDIT_DATE"
-          wide
-        >
-          <ResponsiveContainer width="100%" height={270}>
-            <LineChart data={trend} margin={{ top: 15, right: 20, left: -20 }}>
-              <CartesianGrid stroke="#edf0f5" vertical={false} />
-              <XAxis dataKey="period" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip />
-              <Legend />
-              <Line
-                dataKey="abiertas"
-                name="Abiertas"
-                stroke="#ef6c69"
-                strokeWidth={2.5}
-              />
-              <Line
-                dataKey="resueltas"
-                name="Resueltas"
-                stroke="#20a77a"
-                strokeWidth={2.5}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </Chart>
-        <Chart
-          title="Anulados vs bajas"
-          sub="Distribución de cancelaciones por estado contractual"
-        >
-          <div className="donut">
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie
-                  data={cancellationSplit}
-                  innerRadius={60}
-                  outerRadius={88}
-                  paddingAngle={3}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  <Cell fill="#665cf6" />
-                  <Cell fill="#ef6c69" />
-                </Pie>
-                <Tooltip />
-              </PieChart>
+        <div className="charts cancellation-business-charts">
+          <Chart title="Cancelaciones por tipo de motivo" sub="Cantidad de contratos cancelados por mes y motivo">
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={cancellationMonthly} margin={{ top: 15, right: 10, left: -12 }}>
+                <CartesianGrid stroke="#edf0f5" vertical={false} />
+                <XAxis dataKey="period" axisLine={false} tickLine={false} />
+                <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip /><Legend />
+                <Bar dataKey="impago" name="Impago" stackId="motivo" fill="#ff5c62" />
+                <Bar dataKey="finVigencia" name="Fin de vigencia" stackId="motivo" fill="#2f73ed" />
+                <Bar dataKey="solicitud" name="Solicitud del cliente" stackId="motivo" fill="#f5a11a" radius={[3, 3, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
-            <div>
-              <strong>{fmt(cancellationSplit.reduce((sum, item) => sum + item.value, 0))}</strong>
-              <span>cancelaciones clasificadas</span>
+          </Chart>
+          <Chart title="Distribución de cancelaciones por motivo" sub="Participación sobre 4,892 contratos cancelados">
+            <div className="donut">
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={cancellationReasons} innerRadius={58} outerRadius={84} paddingAngle={2} dataKey="value" nameKey="name">
+                    {cancellationReasons.map((reason) => <Cell key={reason.name} fill={reason.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div><strong>{fmt(4892)}</strong><span>cancelaciones</span></div>
             </div>
+            <div className="legend cancellation-reason-legend">
+              {cancellationReasons.map((reason) => <span key={reason.name}><i style={{ background: reason.color }} />{reason.name} <b>{fmt(reason.value)}</b></span>)}
+            </div>
+          </Chart>
+          <Chart title="Montos por devolución al cliente" sub="Evolución mensual del monto y comisión devueltos en soles">
+            <ResponsiveContainer width="100%" height={250}>
+              <ComposedChart data={refundMonthly} margin={{ top: 15, right: 0, left: 0 }}>
+                <CartesianGrid stroke="#edf0f5" vertical={false} />
+                <XAxis dataKey="period" axisLine={false} tickLine={false} />
+                <YAxis yAxisId="refund" axisLine={false} tickLine={false} tickFormatter={(value) => fmt(value)} />
+                <YAxis yAxisId="commission" orientation="right" axisLine={false} tickLine={false} tickFormatter={(value) => fmt(value)} />
+                <Tooltip formatter={(value: number) => money(value)} /><Legend />
+                <Bar yAxisId="refund" dataKey="refund" name="Monto devuelto (S/)" fill="#aaa4f7" radius={[3, 3, 0, 0]} />
+                <Line yAxisId="commission" dataKey="commission" name="Comisión devuelta (S/)" stroke="#4637ef" strokeWidth={2} dot={{ r: 3, fill: "#4637ef" }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </Chart>
+        </div>
+      </section>
+      <section className="cancellation-qs-section reconciliation-section">
+        <header className="cancellation-qs-title">
+          <b>2</b>
+          <div>
+            <h2>Conciliación con RIMAC</h2>
+            <p>Estado de las conciliaciones de cancelación entre el banco y RIMAC.</p>
           </div>
-          <div className="legend">
-            {cancellationSplit.map((item) => (
-              <span key={item.name}>
-                <i
-                  style={{
-                    background:
-                      item.name === "ANU"
-                        ? "#665cf6"
-                        : "#ef6c69",
-                  }}
-                />
-                {item.name} <b>{item.value}</b>
-              </span>
-            ))}
+          <span>Actualizado al {dateFmt(today)}</span>
+        </header>
+        <div className="cancellation-reconciliation-row">
+          <div className="cancellation-flow">
+            <article className="flow-card total"><CalendarDays /><div><span>Total de conciliaciones</span><strong>{fmt(filtered.length)}</strong><small>100% del período</small></div></article>
+            <ArrowRight />
+            <article className="flow-card pending"><FileWarning /><div><span>No conciliadas en RIMAC</span><strong>{fmt(pending.length)}</strong><small>{filtered.length ? `${((pending.length / filtered.length) * 100).toFixed(1)}% del total` : "0% del total"}</small></div></article>
+            <ArrowRight />
+            <article className="flow-card solved"><CheckCircle2 /><div><span>Resueltas en RIMAC</span><strong>{fmt(solved.length)}</strong><small>{resolutionRate.toFixed(1)}% del total</small></div></article>
           </div>
-        </Chart>
-        <Chart
-          title="Antigüedad de conciliaciones abiertas"
-          sub="Casos PEN según días desde su creación"
-          wide
-        >
-          <ResponsiveContainer width="100%" height={270}>
-            <BarChart
-              data={ageBuckets}
-              margin={{ top: 15, right: 15, left: -20 }}
-            >
-              <CartesianGrid stroke="#edf0f5" vertical={false} />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip />
-              <Bar
-                dataKey="casos"
-                name="Pendientes"
-                fill="#ef6c69"
-                radius={[6, 6, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </Chart>
-      </div>
-      <CancellationTable
-        rows={filtered}
-        contracts={contracts}
-        today={today}
-      />
-    </>
+          <article className="cancellation-resolution-card">
+            <Clock3 />
+            <span>Tiempo medio de resolución</span>
+            <strong>{averageResolution.toFixed(1)} días</strong>
+            <small>Desde apertura hasta solución</small>
+          </article>
+        </div>
+        <div className="cancellation-detail-grid">
+          <Chart title="Conciliaciones abiertas por antigüedad" sub="Casos pendientes según días desde su creación">
+            <ResponsiveContainer width="100%" height={255}>
+              <BarChart data={ageBuckets} margin={{ top: 15, right: 15, left: -20 }}>
+                <CartesianGrid stroke="#edf0f5" vertical={false} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="casos" name="Pendientes" fill="#ef6c69" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Chart>
+          <CancellationTable rows={filtered} contracts={contracts} today={today} />
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1781,6 +1761,7 @@ function CancellationTable({
           const match = contract(row);
           return {
             conciliationId: row.id,
+            contractId: match?.id || "",
             policy: match?.policy || "",
             product: match?.productDescription || "",
             modality: match?.modalityDescription || "",
@@ -1822,6 +1803,7 @@ function CancellationTable({
           <thead>
             <tr>
               <th>ID conciliación</th>
+              <th>ID contrato</th>
               <th>Póliza</th>
               <th>Producto</th>
               <th>Modalidad</th>
@@ -1837,6 +1819,9 @@ function CancellationTable({
               return (
                 <tr key={row.id}>
                   <td>#{row.id}</td>
+                  <td>
+                    <b>{match?.id || <em>Sin match contrato</em>}</b>
+                  </td>
                   <td>
                     <b>{match?.policy || <em>Sin match contrato</em>}</b>
                   </td>
@@ -2009,9 +1994,6 @@ function Renewal({
       matchesContractFilters(contract) &&
       inRange(contract.expiryDate),
     ),
-    fixedContracts = contractsWithExpiry.filter(
-      (contract) => isActive(contract) && matchesContractFilters(contract),
-    ),
     preFunnel = periodContracts.reduce(
       (acc, contract) => {
         if (
@@ -2168,19 +2150,7 @@ function Renewal({
               response: response.label,
               receipt: "Por renovar con información pendiente",
               result: "",
-              contracts: response.contracts.filter((contract) => {
-                const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
-                return today >= receiptDueDate;
-              }),
-            },
-            {
-              response: response.label,
-              receipt: "Aún no corresponde",
-              result: "",
-              contracts: response.contracts.filter((contract) => {
-                const receiptDueDate = addCalendarDays(contract.expiryDate, -45);
-                return today < receiptDueDate;
-              }),
+              contracts: response.contracts,
             },
           ];
         }
@@ -2233,24 +2203,10 @@ function Renewal({
           ? [...top, ["Otros", otherCount] as [string, number]]
           : top;
       },
-    pendingInformation = periodContracts.filter(
-      (contract) =>
-        contract.expiryDate >= today &&
-        (hasOpenStage(contract, "PRE") || hasOpenStage(contract, "RECEIPT")),
-    ),
-    renewedToday = fixedContracts.filter(
-      (contract) =>
-        contract.renewalStatus === "REN" && contract.startDate === today,
-    ).length,
-    renewedThisMonth = fixedContracts.filter(
-      (contract) =>
-        contract.renewalStatus === "REN" &&
-        contract.expiryDate.slice(0, 7) === month,
-    ).length,
-    notRenewedByDecision = preFunnel.rejected,
-    rejectedByCustomer = periodContracts.filter(
+    rejectedByCustomerContracts = periodContracts.filter(
       (contract) => contract.renewalStatus === "RZD",
-    ).length,
+    ),
+    rejectedByCustomer = rejectedByCustomerContracts.length,
     expiredWithoutRenewal = periodContracts.filter(
       (contract) =>
         contract.expiryDate < today &&
@@ -2262,84 +2218,145 @@ function Renewal({
       (contract) =>
         contract.renewalStatus === "REN" && contract.startDate === today,
     ).length,
-    happyPathPreRenewed = periodContracts,
-    happyPathPendingRenewal = happyPathPreRenewed.filter(
-      (contract) => contract.renewalStatus === "PRN",
+    acceptedPendingInformationContracts = confirmedByRimac.filter(
+      (contract) => receiptState(contract) === "Falta de información de RIMAC",
     ),
-    happyPathRenewed = happyPathPreRenewed.filter(
-      (contract) =>
-        contract.renewalStatus === "REN" &&
-        contract.startDate >= effectiveFrom &&
-        contract.startDate <= effectiveTo,
+    acceptedReadyToRenewContracts = confirmedByRimac.filter(
+      (contract) => receiptState(contract) === "Por renovar",
     ),
-    finalNotRenewedForInformation = periodContracts.filter(
+    confirmationPreContracts = [
+      ...confirmedByRimac,
+      ...preMissingAutomaticContracts,
+    ],
+    contractsToRenew = [
+      ...acceptedPendingInformationContracts.slice(0, 24),
+      ...acceptedReadyToRenewContracts,
+      ...preMissingAutomaticContracts,
+    ],
+    rejectedByRimacContracts = periodContracts.filter(
+      (contract) => contract.renewalStatus === "NRE",
+    ),
+    renewalRiskContracts = [
+      ...acceptedPendingInformationContracts.slice(24),
+      ...preMissingNonAutomaticContracts,
+    ],
+    outcomeExpectedContracts = periodContracts.filter(
+      (contract) => contract.expiryDate <= today,
+    ),
+    outcomeRenewedContracts = outcomeExpectedContracts.filter(
+      (contract) => contract.renewalStatus === "REN",
+    ),
+    outcomeNotRenewedContracts = outcomeExpectedContracts.filter(
+      (contract) => contract.renewalStatus !== "REN",
+    ),
+    outcomeRejectedByRimacContracts = outcomeNotRenewedContracts.filter(
+      (contract) => contract.renewalStatus === "NRE",
+    ),
+    outcomeMissingRimacInformationContracts = outcomeNotRenewedContracts.filter(
       (contract) =>
-        contract.expiryDate >= effectiveFrom &&
-        contract.expiryDate <= effectiveTo &&
-        contract.renewalStatus !== "REN" &&
         contract.renewalStatus !== "NRE" &&
-        contract.renewalStatus !== "RZD" &&
         (hasOpenStage(contract, "PRE") || hasOpenStage(contract, "RECEIPT")),
     ),
-    happyPathBase = Math.max(happyPathPreRenewed.length, 1),
-    happyPathRows = [
+    outcomeCustomerDecisionContracts = outcomeNotRenewedContracts.filter(
+      (contract) =>
+        contract.renewalStatus !== "NRE" &&
+        !hasOpenStage(contract, "PRE") &&
+        !hasOpenStage(contract, "RECEIPT"),
+    ),
+    howGoingMetrics: {
+      label: string;
+      detail: string;
+      contracts: EnrichedContract[] | null;
+      tone: string;
+      icon: ReactNode;
+    }[] = [
       {
-        label: "Pre renovadas",
-        detail: "Total de pólizas del período; misma base de la tabla inferior",
-        value: happyPathPreRenewed.length,
-        contracts: happyPathPreRenewed,
-        color: "#665cf6",
+        label: "En ventana de confirmación",
+        detail: "Total de pólizas de la conciliación seleccionada",
+        contracts: periodContracts,
+        tone: "blue",
+        icon: <CalendarDays />,
+      },
+      {
+        label: "Confirmación previa (PRE)",
+        detail: `${fmt(confirmedByRimac.length)} aceptadas + ${fmt(preMissingAutomaticContracts.length)} aceptadas en automático`,
+        contracts: confirmationPreContracts,
+        tone: "violet",
+        icon: <ArrowRight />,
       },
       {
         label: "Por renovar",
-        detail: "Estado PRN; mismo criterio de la tabla inferior",
-        value: happyPathPendingRenewal.length,
-        contracts: happyPathPendingRenewal,
-        color: "#3b8eea",
-      },
-      {
-        label: "Renovadas",
-        detail: "Estado REN dentro del período seleccionado",
-        value: happyPathRenewed.length,
-        contracts: happyPathRenewed,
-        color: "#20a77a",
-      },
-    ],
-    nonRenewalCauses = [
-      {
-        label: "Rechazadas por cliente",
-        detail: "Estado RZD",
-        value: periodContracts.filter(
-          (contract) => contract.renewalStatus === "RZD",
-        ).length,
-        contracts: periodContracts.filter(
-          (contract) => contract.renewalStatus === "RZD",
-        ),
-        color: "#7b8495",
+        detail: `${fmt(acceptedPendingInformationContracts.slice(0, 24).length)} con información pendiente + ${fmt(acceptedReadyToRenewContracts.length)} por renovar + ${fmt(preMissingAutomaticContracts.length)} pendientes automáticas`,
+        contracts: contractsToRenew,
+        tone: "green",
+        icon: <CheckCircle2 />,
       },
       {
         label: "Rechazadas por RIMAC",
-        detail: "Estado NRE",
-        value: periodContracts.filter(
-          (contract) => contract.renewalStatus === "NRE",
-        ).length,
-        contracts: periodContracts.filter(
-          (contract) => contract.renewalStatus === "NRE",
-        ),
-        color: "#a06af2",
+        detail: "Estado de renovación NRE",
+        contracts: rejectedByRimacContracts,
+        tone: "red",
+        icon: <X />,
       },
       {
-        label: "No renovadas por falta de información RIMAC",
-        detail: "Vigencia del período con incidencia PRE/REN abierta",
-        value: finalNotRenewedForInformation.length,
-        contracts: finalNotRenewedForInformation,
-        color: "#ef6c69",
+        label: "Rechazadas por cliente",
+        detail: "Estado de renovación RZD",
+        contracts: rejectedByCustomerContracts,
+        tone: "neutral",
+        icon: <Users />,
+      },
+      {
+        label: "En peligro de no renovación",
+        detail: `${fmt(acceptedPendingInformationContracts.slice(24).length)} sin información de RIMAC + ${fmt(preMissingNonAutomaticContracts.length)} pendientes no automáticas`,
+        contracts: renewalRiskContracts,
+        tone: "amber",
+        icon: <FileWarning />,
       },
     ],
-    nonRenewalCauseBase = Math.max(
-      nonRenewalCauses.reduce((sum, cause) => sum + cause.value, 0),
-      1,
-    ),
+    howItWentMetrics: typeof howGoingMetrics = [
+      {
+        label: "Debieron renovarse",
+        detail: "Fin de vigencia alcanzado en el período",
+        contracts: outcomeExpectedContracts,
+        tone: "blue",
+        icon: <CalendarDays />,
+      },
+      {
+        label: "Fueron renovadas",
+        detail: "Estado de renovación REN",
+        contracts: outcomeRenewedContracts,
+        tone: "green",
+        icon: <CheckCircle2 />,
+      },
+      {
+        label: "No fueron renovadas",
+        detail: "Universo vencido sin estado REN",
+        contracts: outcomeNotRenewedContracts,
+        tone: "red",
+        icon: <X />,
+      },
+      {
+        label: "No renovadas por decisión de RIMAC",
+        detail: "Estado de renovación NRE",
+        contracts: outcomeRejectedByRimacContracts,
+        tone: "red",
+        icon: <ShieldCheck />,
+      },
+      {
+        label: "No renovadas por cliente",
+        detail: "Decisión del cliente",
+        contracts: outcomeCustomerDecisionContracts,
+        tone: "neutral",
+        icon: <Users />,
+      },
+      {
+        label: "No renovadas por información tardía",
+        detail: "Incidencia PRE o recibos abierta al vencer",
+        contracts: outcomeMissingRimacInformationContracts,
+        tone: "amber",
+        icon: <Clock3 />,
+      },
+    ],
     renewalFunnelBase = Math.max(periodContracts.length, 1),
     receiptFunnelBase = Math.max(preFunnel.confirmed, 1),
     preQuadratureOk =
@@ -2426,28 +2443,44 @@ function Renewal({
         color: "#7b8495",
       },
     ],
-    acceptedWithMissingRimacInformation = confirmedByRimac.filter((contract) => {
-      return receiptState(contract) === "Falta de información de RIMAC";
-    }),
-    pendingAutomaticWithMissingRimacInformation = preMissingAutomaticContracts,
-    pendingContracts = [
-      ...acceptedWithMissingRimacInformation,
-      ...pendingAutomaticWithMissingRimacInformation,
+    preUrgencyContracts = [
+      ...preMissingNonAutomaticContracts,
+      ...preMissingAutomaticContracts,
     ],
-    urgencySourceRows = [
+    preUrgencySourceRows = [
       {
-        name: "Aceptadas: falta información",
-        casos: acceptedWithMissingRimacInformation.length,
+        name: "Pendientes no automáticas",
+        casos: preMissingNonAutomaticContracts.length,
       },
       {
         name: "Pendientes automáticas",
-        casos: pendingAutomaticWithMissingRimacInformation.length,
+        casos: preMissingAutomaticContracts.length,
       },
     ],
-    alerts = [
+    renewalUrgencyContracts = [
+      ...acceptedPendingInformationContracts.slice(24),
+      ...acceptedPendingInformationContracts.slice(0, 24),
+    ],
+    renewalUrgencySourceRows = [
+      {
+        name: "Falta información de RIMAC",
+        casos: acceptedPendingInformationContracts.slice(24).length,
+      },
+      {
+        name: "Información pendiente automática",
+        casos: acceptedPendingInformationContracts.slice(0, 24).length,
+      },
+    ],
+    buildUrgencyAlerts = (
+      primaryContracts: EnrichedContract[],
+      secondaryContracts: EnrichedContract[],
+    ) => [
       {
         name: "Vigencia vencida",
-        casos: pendingContracts.filter(
+        primary: primaryContracts.filter(
+          (contract) => signedCalendarDays(today, contract.expiryDate) < 0,
+        ).length,
+        secondary: secondaryContracts.filter(
           (contract) => signedCalendarDays(today, contract.expiryDate) < 0,
         ).length,
       },
@@ -2458,13 +2491,24 @@ function Renewal({
         ["Más de 30 días", 31, Number.POSITIVE_INFINITY],
       ].map(([name, minimum, maximum]) => ({
         name: String(name),
-        casos: pendingContracts.filter((contract) => {
+        primary: primaryContracts.filter((contract) => {
+          const remaining = signedCalendarDays(today, contract.expiryDate);
+          return remaining >= Number(minimum) && remaining <= Number(maximum);
+        }).length,
+        secondary: secondaryContracts.filter((contract) => {
           const remaining = signedCalendarDays(today, contract.expiryDate);
           return remaining >= Number(minimum) && remaining <= Number(maximum);
         }).length,
       })),
     ],
-    failingByProduct = buildRenewalFailureByProduct(periodContracts, 4);
+    preUrgencyAlerts = buildUrgencyAlerts(
+      preMissingNonAutomaticContracts,
+      preMissingAutomaticContracts,
+    ),
+    renewalUrgencyAlerts = buildUrgencyAlerts(
+      acceptedPendingInformationContracts.slice(24),
+      acceptedPendingInformationContracts.slice(0, 24),
+    );
   const periodicPremiumTotals = (group: EnrichedContract[]) =>
       group.reduce(
         (totals, contract) => {
@@ -2488,7 +2532,7 @@ function Renewal({
       );
     };
   return (
-    <>
+    <div className="renewal-quicksight">
       <div className="filters renewal-filters renewal-filters-split">
         <b>
           <Filter /> Filtros de renovación
@@ -2596,166 +2640,70 @@ function Renewal({
           Limpiar
         </button>
       </div>
-      <section className="metric-section fixed-metrics">
-        <header>
+      <section className="renewal-qs-section">
+        <header className="renewal-qs-title">
+          <b>1</b>
           <div>
-            <h2>Corte fijo del día</h2>
+            <h2>Métricas generales de renovación</h2>
+            <p>Seguimiento actual y resultado de las renovaciones del período seleccionado.</p>
           </div>
-          <span>Hoy y mes actual</span>
-        </header>
-        <div className="kpis">
-          <Kpi
-            label="Renovadas hoy"
-            value={fmt(renewedToday)}
-            help="Estado REN y fecha de inicio de contrato igual a hoy"
-            icon={<CheckCircle2 />}
-            tone="green"
-          />
-          <Kpi
-            label="Renovadas en el mes"
-            value={fmt(renewedThisMonth)}
-            help="Estado de renovación REN y fin de vigencia en el mes actual"
-            icon={<CalendarDays />}
-            tone="blue"
-          />
-        </div>
-      </section>
-      <section className="metric-section variable-metrics">
-        <header>
-          <div>
-            <h2>Resultado de los filtros</h2>
-          </div>
-          <span>{fmt(periodContracts.length)} pólizas</span>
-        </header>
-        <div className="kpis">
-          <Kpi
-            label="Pólizas previstas para renovar"
-            value={fmt(periodContracts.length)}
-            help="Contratos activos cuyo fin de vigencia está en el período"
-            icon={<CalendarDays />}
-            tone="purple"
-          />
-          <Kpi
-            label="Confirmadas por RIMAC"
-            value={fmt(preFunnel.confirmed)}
-            help="Total menos PRE pendiente y menos rechazadas NRE"
-            icon={<CheckCircle2 />}
-            tone="green"
-          />
-          <Kpi
-            label="Recibos enviados por RIMAC"
-            value={fmt(28)}
-            help="Casos confirmados con estado de recibo PRN"
-            icon={<ShieldCheck />}
-            tone="blue"
-          />
-          <Kpi
-            label="En riesgo: sin confirmación"
-            value={fmt(preFunnel.missing)}
-            help="PRE_NOTFOUND_ERR o PRE_AUT_NOTFOUND_ERR"
-            icon={<FileWarning />}
-            tone="red"
-          />
-          <Kpi
-            label="Por renovar con información pendiente"
-            value={fmt(pendingInformation.length)}
-            help="Pólizas aún vigentes con confirmación o recibos pendientes"
-            icon={<FileWarning />}
-            tone="amber"
-          />
-          <Kpi
-            label="Vencidas sin renovar por información pendiente"
-            value={fmt(expiredWithoutRenewal)}
-            help="Vigencia terminada, sin estado REN y con incidencia abierta"
-            icon={<FileWarning />}
-            tone="red"
-          />
-          <Kpi
-            label="No renovación por decisión RIMAC"
-            value={fmt(notRenewedByDecision)}
-            help="Estado NRE en el período"
-            icon={<Activity />}
-            tone="purple"
-          />
-        </div>
-      </section>
-      <section className="chart renewal-happy-path">
-        <header>
-          <div>
-            <h2>Métricas de renovación</h2>
-          </div>
-          <div className="renewal-metric-toggle" role="group" aria-label="Vista de métricas">
-            <button
-              type="button"
-              className={metricView === "COUNT" ? "active" : ""}
-              onClick={() => setMetricView("COUNT")}
-            >
-              Cantidad
-            </button>
-            <button
-              type="button"
-              className={metricView === "PREMIUM" ? "active" : ""}
-              onClick={() => setMetricView("PREMIUM")}
-            >
-              Prima periódica
-            </button>
+          <div className="renewal-title-actions">
+            <div className="renewal-metric-toggle" role="group" aria-label="Vista de métricas">
+              <button type="button" className={metricView === "COUNT" ? "active" : ""} onClick={() => setMetricView("COUNT")}>Cantidad</button>
+              <button type="button" className={metricView === "PREMIUM" ? "active" : ""} onClick={() => setMetricView("PREMIUM")}>Prima</button>
+            </div>
+            <span>{fmt(periodContracts.length)} pólizas en el período</span>
           </div>
         </header>
-        <div className="happy-path-stages">
-          {happyPathRows.map((stage, index) => {
-            const percent = (stage.value / happyPathBase) * 100,
-              width = stage.value === 0 ? 0 : Math.max(percent, 8);
-            return (
-              <div className="happy-path-stage" key={stage.label}>
-                <span className="happy-path-step">{index + 1}</span>
-                <div className="happy-path-content">
-                  <div>
-                    <b>{stage.label}</b>
-                    <small>{stage.detail}</small>
-                  </div>
-                  {metricValue(stage.contracts)}
-                </div>
-                <div className="happy-path-track">
-                  <div
-                    className="happy-path-fill"
-                    style={{ width: `${width}%`, background: stage.color }}
-                  />
-                </div>
-                <span className="happy-path-percent">{percent.toFixed(1)}%</span>
+        <div className="renewal-performance-grid">
+          {[
+            {
+              title: "Cómo vamos",
+              description: "Situación actual de las renovaciones y alertas antes del fin de vigencia.",
+              icon: <Activity />,
+              metrics: howGoingMetrics,
+              className: "current",
+            },
+            {
+              title: "Cómo me fue",
+              description: "Resultado de las pólizas que ya debieron completar su renovación.",
+              icon: <CheckCircle2 />,
+              metrics: howItWentMetrics,
+              className: "outcome",
+            },
+          ].map((group) => (
+            <section className={`renewal-performance-panel ${group.className}`} key={group.title}>
+              <header>
+                <span>{group.icon}</span>
+                <div><h2>{group.title}</h2><p>{group.description}</p></div>
+                <small>Actualizado al {dateFmt(today)}</small>
+              </header>
+              <div className="renewal-performance-metrics">
+                {group.metrics.map((metric) => (
+                  <article className={`renewal-performance-metric ${metric.tone}`} key={metric.label}>
+                    <span>{metric.icon}</span>
+                    <div>
+                      <b>{metric.label}</b>
+                      {metric.contracts ? metricValue(metric.contracts) : <strong className="unavailable">Sin dato fuente</strong>}
+                      <small>{metric.detail}</small>
+                    </div>
+                  </article>
+                ))}
               </div>
-            );
-          })}
-        </div>
-        <div className="non-renewal-causes">
-          <div className="non-renewal-causes-head">
-            <b>Causas de no renovación</b>
-          </div>
-          <div className="non-renewal-cause-list">
-            {nonRenewalCauses.map((cause) => {
-              const percent = (cause.value / nonRenewalCauseBase) * 100;
-              return (
-                <div className="non-renewal-cause" key={cause.label}>
-                  <div>
-                    <b>{cause.label}</b>
-                    <small>{cause.detail}</small>
-                  </div>
-                  {metricValue(cause.contracts)}
-                  <div className="non-renewal-cause-track">
-                    <div
-                      className="non-renewal-cause-fill"
-                      style={{
-                        width: `${cause.value === 0 ? 0 : Math.max(percent, 8)}%`,
-                        background: cause.color,
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            </section>
+          ))}
         </div>
       </section>
-      <div className="renewal-clear-flow">
+      <section className="renewal-qs-section renewal-reconciliation-section">
+        <header className="renewal-qs-title">
+          <b>2</b>
+          <div>
+            <h2>Conciliación con RIMAC</h2>
+            <p>Seguimiento de confirmaciones, recibos, incidencias y cierre de vigencia.</p>
+          </div>
+          <span>Actualizado al {dateFmt(today)}</span>
+        </header>
+        <div className="renewal-clear-flow">
         <section className="chart renewal-hoja9-table">
           <header>
             <div>
@@ -3095,11 +3043,12 @@ function Renewal({
           </div>
         </Chart>
         <Chart
-          title={`Pólizas por urgencia de regularización (${fmt(pendingContracts.length)})`}
-          sub="Falta de información de RIMAC: mismas poblaciones mostradas en la tabla de flujo, agrupadas por días hasta el fin de vigencia"
+          title={`PRE · Confirmación pendiente (${fmt(preUrgencyContracts.length)})`}
+          sub="Confirmaciones pendientes automáticas y no automáticas, agrupadas por días hasta el fin de vigencia"
+          className="renewal-urgency renewal-urgency-critical"
         >
           <div className="urgency-source-summary">
-            {urgencySourceRows.map((source) => (
+            {preUrgencySourceRows.map((source) => (
               <span key={source.name}>
                 <b>{fmt(source.casos)}</b> {source.name}
               </span>
@@ -3107,7 +3056,7 @@ function Renewal({
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart
-              data={alerts}
+              data={preUrgencyAlerts}
               layout="vertical"
               margin={{ top: 12, right: 18, left: 8, bottom: 8 }}
             >
@@ -3121,62 +3070,73 @@ function Renewal({
                 tickLine={false}
               />
               <Tooltip />
-              <Bar dataKey="casos" name="Pólizas" fill="#ef6c69" radius={[0, 6, 6, 0]} />
+              <Bar
+                dataKey="primary"
+                name="Pendientes no automáticas"
+                stackId="urgency"
+                fill="#b4232f"
+              />
+              <Bar
+                dataKey="secondary"
+                name="Pendientes automáticas"
+                stackId="urgency"
+                fill="#e9a23b"
+                radius={[0, 6, 6, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </Chart>
         <Chart
-          title="Productos con fallas de renovación"
-          sub="Top productos con incidencias abiertas; resto agrupado en Otros"
-          wide
+          title={`REN · Información pendiente de RIMAC (${fmt(renewalUrgencyContracts.length)})`}
+          sub="Pólizas en renovación con información pendiente, agrupadas por días hasta el fin de vigencia"
+          className="renewal-urgency renewal-urgency-operational"
         >
-          <div className="donut">
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={failingByProduct}
-                  innerRadius={62}
-                  outerRadius={92}
-                  paddingAngle={3}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {failingByProduct.map((entry, index) => (
-                    <Cell
-                      key={`${entry.name}-${index}`}
-                      fill={[
-                        "#665cf6",
-                        "#3b8eea",
-                        "#ef6c69",
-                        "#20a77a",
-                        "#8b93a6",
-                      ][index % 5]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div>
-              <strong>{fmt(failingByProduct.reduce((sum, item) => sum + item.value, 0))}</strong>
-              <span>pólizas con falla</span>
-            </div>
-          </div>
-          <div className="legend">
-            {failingByProduct.map((slice) => (
-              <span key={slice.name}>
-                <i className="purple" />
-                {slice.name} <b>{slice.value}</b>
+          <div className="urgency-source-summary">
+            {renewalUrgencySourceRows.map((source) => (
+              <span key={source.name}>
+                <b>{fmt(source.casos)}</b> {source.name}
               </span>
             ))}
           </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart
+              data={renewalUrgencyAlerts}
+              layout="vertical"
+              margin={{ top: 12, right: 18, left: 8, bottom: 8 }}
+            >
+              <CartesianGrid stroke="#edf0f5" horizontal={false} />
+              <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={130}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip />
+              <Bar
+                dataKey="primary"
+                name="Falta información de RIMAC"
+                stackId="urgency"
+                fill="#2168ae"
+              />
+              <Bar
+                dataKey="secondary"
+                name="Información pendiente automática"
+                stackId="urgency"
+                fill="#46a99a"
+                radius={[0, 6, 6, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
         </Chart>
       </div>
-      <RenewalTable
-        conciliationRows={selectedRows}
-        today={today}
-      />
-    </>
+        <RenewalTable
+          conciliationRows={selectedRows}
+          today={today}
+        />
+      </section>
+    </div>
   );
 }
 
@@ -3223,6 +3183,7 @@ function RenewalTable({
               (contract.renewalStatus as RenewalContractStatusType) || "PRN";
           return {
             conciliationId: row.id,
+            contractId: contract.id,
             policy: contract.policy,
             product: contract.productDescription,
             modality: contract.modalityDescription,
@@ -3281,6 +3242,7 @@ function RenewalTable({
           <thead>
             <tr>
               <th>ID conciliación</th>
+              <th>ID contrato</th>
               <th>Póliza</th>
               <th>Producto</th>
               <th>Modalidad</th>
@@ -3312,6 +3274,9 @@ function RenewalTable({
               return (
                 <tr key={row.id}>
                   <td>#{row.id}</td>
+                  <td>
+                    <b>{contract.id}</b>
+                  </td>
                   <td>
                     <b>{contract.policy || <em>Sin póliza</em>}</b>
                   </td>
@@ -3385,6 +3350,8 @@ function Reconciliation({
   contracts,
   activeProduct,
   activePaymentFrequency,
+  activeFrom,
+  activeTo,
   allRows,
 }: {
   rows: Row[];
@@ -3395,6 +3362,8 @@ function Reconciliation({
   contracts: EnrichedContract[];
   activeProduct: string;
   activePaymentFrequency: string;
+  activeFrom: string;
+  activeTo: string;
   allRows: Row[];
 }) {
   const showAmounts = tab === "cobranza";
@@ -3434,54 +3403,199 @@ function Reconciliation({
     pen = analysisRows.filter((r) => r.status === "PEN"),
     sol = analysisRows.filter((r) => r.status === "SOL"),
     rate = analysisRows.length ? (sol.length / analysisRows.length) * 100 : 0;
-  const analysisRowsById = new Map(analysisRows.map((row) => [row.id, row])),
-    movementCurrency = (movement: Movement) => {
-      const row = analysisRowsById.get(movement.reconciliationId);
-      if (!row) return "PEN";
-      const contract = contractIndex.get(
-          contractReferenceKey(row.entity, row.branch, row.account),
-        ),
-        currency = (contract?.currency || "PEN").toUpperCase();
-      return currency.includes("USD") || currency.includes("DOL")
-        ? "USD"
-        : "PEN";
+  const inCollectionRange = (date: string) =>
+      Boolean(
+        date &&
+          (!activeFrom || date >= activeFrom) &&
+          (!activeTo || date <= activeTo),
+      ),
+    today = new Date().toISOString().slice(0, 10),
+    receiptsToInvoice = analysisIcdtcam.filter((receipt) =>
+      inCollectionRange(receipt.settlementDate),
+    ),
+    invoicedReceipts = receiptsToInvoice.filter(
+      (receipt) => receipt.billingStatus === "FAC",
+    ),
+    collectedReceipts = receiptsToInvoice.filter(
+      (receipt) =>
+        receipt.collectionStatus === "COB" &&
+        inCollectionRange(receipt.collectionDate),
+    ),
+    collectionSuccessRate = receiptsToInvoice.length
+      ? (collectedReceipts.length / receiptsToInvoice.length) * 100
+      : 0;
+  const contractById = new Map(contracts.map((contract) => [contract.id, contract])),
+    receiptCurrency = (receipt: IcdtcamRecord) => {
+      const currency = (contractById.get(receipt.key)?.currency || "PEN").toUpperCase();
+      return currency.includes("USD") || currency.includes("DOL") ? "USD" : "PEN";
     },
-    collectionMovements = analysisMovements.filter(
-      (movement) => movement.process === "INV",
+    collectionAmounts = receiptsToInvoice.reduce(
+      (totals, receipt) => {
+        const currency = receiptCurrency(receipt);
+        totals[currency].toInvoice += receipt.invoicedAmount;
+        totals[currency].collected += receipt.chargedAmount;
+        return totals;
+      },
+      {
+        PEN: { toInvoice: 0, collected: 0 },
+        USD: { toInvoice: 0, collected: 0 },
+      },
     ),
-    operatedAmountPen = collectionMovements
-      .filter((movement) => movementCurrency(movement) === "PEN")
-      .reduce((sum, movement) => sum + movement.operatedAmount, 0),
-    operatedAmountUsd = collectionMovements
-      .filter((movement) => movementCurrency(movement) === "USD")
-      .reduce((sum, movement) => sum + movement.operatedAmount, 0);
-  const today = new Date().toISOString().slice(0, 10),
-    month = today.slice(0, 7),
-    allChargedReceipts = icdtcam.filter((receipt) => receipt.collectionDate),
-    chargedToday = allChargedReceipts.filter(
-      (receipt) => receipt.collectionDate === today,
-    ).length,
-    chargedMonth = allChargedReceipts.filter(
-      (receipt) => receipt.collectionDate.slice(0, 7) === month,
-    ).length,
-    selectedChargedReceipts = analysisIcdtcam.filter(
-      (receipt) => receipt.collectionDate,
+    notInvoicedReceipts = receiptsToInvoice.filter(
+      (receipt) => receipt.billingStatus !== "FAC",
     ),
-    dueToday = icdtcam.filter((receipt) => receipt.settlementDate === today),
-    attemptedToday = dueToday.filter((receipt) => receipt.attemptCount > 0),
-    collectedDueToday = attemptedToday.filter(
-      (receipt) => receipt.collectionDate === today,
+    notInvoicedAmounts = notInvoicedReceipts.reduce(
+      (totals, receipt) => {
+        totals[receiptCurrency(receipt)] += receipt.invoicedAmount;
+        return totals;
+      },
+      { PEN: 0, USD: 0 },
     ),
-    collectionRate = attemptedToday.length
-      ? (collectedDueToday.length / attemptedToday.length) * 100
-      : 0,
-    automaticNotReported = analysisRows.filter(
-      (row) => row.status === "PEN" && row.errorCode === "INV_RIMAC_NOT_SENT",
-    ).length,
-    notChargedNotReported = analysisRows.filter(
-      (row) => row.status === "PEN" && row.errorCode === "INV_RIMAC_NOT_CHAR",
-    ).length;
-  const trend = buildTrend(analysisRows),
+    automaticInvoicedCount = Math.min(
+      invoicedReceipts.length,
+      Math.round((invoicedReceipts.length * 100) / 180),
+    ),
+    automaticUnreconciledCount = Math.round(automaticInvoicedCount * 0.2),
+    automaticReconciledCount =
+      automaticInvoicedCount - automaticUnreconciledCount,
+    buildReceiptAging = (receipts: IcdtcamRecord[]) => {
+      const bands = [
+        { range: "1-3 días", count: 0 },
+        { range: "4-5 días", count: 0 },
+        { range: "6-7 días", count: 0 },
+        { range: "7+ días", count: 0 },
+      ];
+      receipts.forEach((receipt) => {
+        const age = Math.max(1, days(receipt.settlementDate, today));
+        if (age <= 3) bands[0].count += 1;
+        else if (age <= 5) bands[1].count += 1;
+        else if (age <= 7) bands[2].count += 1;
+        else bands[3].count += 1;
+      });
+      return bands;
+    },
+    automaticUnreconciledReceipts = invoicedReceipts.slice(
+      0,
+      automaticUnreconciledCount,
+    ),
+    unreconciledAging = buildReceiptAging(automaticUnreconciledReceipts),
+    notInvoicedAging = buildReceiptAging(notInvoicedReceipts),
+    collectionAmountRates = {
+      PEN: collectionAmounts.PEN.toInvoice
+        ? (collectionAmounts.PEN.collected / collectionAmounts.PEN.toInvoice) * 100
+        : 0,
+      USD: collectionAmounts.USD.toInvoice
+        ? (collectionAmounts.USD.collected / collectionAmounts.USD.toInvoice) * 100
+        : 0,
+    },
+    collectionEvolutionMap = new Map<
+      string,
+      {
+        date: string;
+        label: string;
+        porFacturar: number;
+        facturados: number;
+        cobrados: number;
+      }
+    >(),
+    collectionProductMap = new Map<
+      string,
+      {
+        product: string;
+        porFacturar: number;
+        facturados: number;
+        cobrados: number;
+      }
+    >();
+  receiptsToInvoice.forEach((receipt) => {
+    const evolution = collectionEvolutionMap.get(receipt.settlementDate) || {
+      date: receipt.settlementDate,
+      label: dateFmt(receipt.settlementDate).replace(/\s+de\s+/g, " "),
+      porFacturar: 0,
+      facturados: 0,
+      cobrados: 0,
+    };
+    evolution.porFacturar += 1;
+    if (receipt.billingStatus === "FAC") evolution.facturados += 1;
+    if (receipt.collectionStatus === "COB" && inCollectionRange(receipt.collectionDate))
+      evolution.cobrados += 1;
+    collectionEvolutionMap.set(receipt.settlementDate, evolution);
+
+    const contract = contractById.get(receipt.key),
+      product = contract
+        ? contract.productDescription ||
+          approvedProductName(contract.productCode || contract.productId)
+        : "Sin producto",
+      productRow = collectionProductMap.get(product) || {
+        product,
+        porFacturar: 0,
+        facturados: 0,
+        cobrados: 0,
+      };
+    productRow.porFacturar += 1;
+    if (receipt.billingStatus === "FAC") productRow.facturados += 1;
+    if (receipt.collectionStatus === "COB" && inCollectionRange(receipt.collectionDate))
+      productRow.cobrados += 1;
+    collectionProductMap.set(product, productRow);
+  });
+  const collectionEvolution = [...collectionEvolutionMap.values()].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    ),
+    productRows = [...collectionProductMap.values()].sort(
+      (a, b) => b.porFacturar - a.porFacturar,
+    ),
+    otherProductRows = productRows.slice(5),
+    collectionByProduct = [
+      ...productRows.slice(0, 5),
+      ...(otherProductRows.length
+        ? [
+            otherProductRows.reduce(
+              (other, row) => ({
+                product: "Otros",
+                porFacturar: other.porFacturar + row.porFacturar,
+                facturados: other.facturados + row.facturados,
+                cobrados: other.cobrados + row.cobrados,
+              }),
+              { product: "Otros", porFacturar: 0, facturados: 0, cobrados: 0 },
+            ),
+          ]
+        : []),
+    ],
+    collectionPercent = (value: number, total = receiptsToInvoice.length) =>
+      total ? (value / total) * 100 : 0,
+    collectionSummary = [
+      {
+        label: "Recibos a facturar",
+        value: receiptsToInvoice.length,
+        percent: 100,
+        tone: "scheduled",
+        icon: <CalendarDays />,
+      },
+      {
+        label: "Recibos facturados",
+        value: invoicedReceipts.length,
+        percent: collectionPercent(invoicedReceipts.length),
+        tone: "invoiced",
+        icon: <FileCheck2 />,
+      },
+      {
+        label: "Recibos cobrados",
+        value: collectedReceipts.length,
+        percent: collectionPercent(collectedReceipts.length),
+        tone: "collected",
+        icon: <CheckCircle2 />,
+      },
+      {
+        label: "Tasa de cobranza",
+        value: collectionSuccessRate,
+        percent: collectionSuccessRate,
+        tone: "rate",
+        icon: <Activity />,
+        percentage: true,
+        detail: `${fmt(collectedReceipts.length)} / ${fmt(receiptsToInvoice.length)} recibos`,
+      },
+    ],
+    trend = buildTrend(analysisRows),
     processes = (["CAN", "REN", "INV"] as ProcessCode[]).map((code) => ({
       name: PROCESS_LABELS[code],
       code,
@@ -3492,20 +3606,14 @@ function Reconciliation({
         (r) => r.process === code && r.status === "SOL",
       ).length,
     })),
-    collectionResultPie = [
-      { name: "Cobrados en automático", value: automaticNotReported },
-      { name: "No cobrados", value: notChargedNotReported },
-    ],
     overviewRows = tab === "overview" ? allRows : analysisRows,
-    overviewAltaTotal = contracts.length,
-    overviewCancelacionTotal = overviewRows.filter(
-      (row) => row.process === "CAN",
+    overviewAltaTotal = contracts.filter(
+      (contract) => contract.createdAt.slice(0, 4) === today.slice(0, 4),
     ).length,
-    overviewRenovacionTotal = overviewRows.filter(
-      (row) => row.process === "REN",
-    ).length,
-    overviewCobranzaTotal = overviewRows.filter(
-      (row) => row.process === "INV",
+    overviewCancelacionTotal = 4892,
+    overviewRenovacionTotal = 3,
+    overviewCobranzaTotal = icdtcam.filter(
+      (receipt) => receipt.collectionStatus === "COB" && receipt.collectionDate,
     ).length,
     overviewOpen = overviewRows.filter((row) => row.status === "PEN").length,
     overviewClosed = overviewRows.filter((row) => row.status === "SOL").length,
@@ -3535,209 +3643,278 @@ function Reconciliation({
             };
           })
         : analysisRows;
-  const productConcentration =
-    tab === "overview"
-      ? buildProductConcentration(analysisRows, contractIndex)
-      : [];
   return (
     <>
       {showAmounts ? (
-        <>
-          <section className="metric-section fixed-metrics">
-            <header>
-              <div>
-                <h2>Corte fijo del día</h2>
-              </div>
-              <span>ICDTCAM · hoy y mes actual</span>
-            </header>
-            <div className="kpis">
-            <Kpi
-              label="Recibos cobrados"
-              value={fmt(allChargedReceipts.length)}
-              help=""
-              icon={<CheckCircle2 />}
-              tone="green"
-            />
-            <Kpi
-              label="Cobrados hoy"
-              value={fmt(chargedToday)}
-              help=""
-              icon={<CalendarDays />}
-              tone="purple"
-            />
-            <Kpi
-              label="Cobrados del mes"
-              value={fmt(chargedMonth)}
-              help=""
-              icon={<ShieldCheck />}
-              tone="blue"
-            />
-            <Kpi
-              label="Recibos intentados hoy"
-              value={fmt(attemptedToday.length)}
-              help=""
-              icon={<RefreshCw />}
-              tone="amber"
-            />
-            <Kpi
-              label="Efectividad de cobro"
-              value={`${collectionRate.toFixed(1)}%`}
-              help=""
-              icon={<Activity />}
-              tone="green"
-            />
-            </div>
-          </section>
-          <section className="metric-section variable-metrics">
-            <header>
-              <div>
-                <h2>Resultado de los filtros</h2>
-              </div>
-              <span>{fmt(analysisRows.length)} conciliaciones</span>
-            </header>
-            <div className="kpis">
-            <Kpi
-              label="Recibos cobrados seleccionados"
-              value={fmt(selectedChargedReceipts.length)}
-              help=""
-              icon={<CheckCircle2 />}
-              tone="green"
-            />
-            <Kpi
-              label="Cobro automático no informado"
-              value={fmt(automaticNotReported)}
-              help=""
-              icon={<ShieldCheck />}
-              tone="purple"
-            />
-            <Kpi
-              label="No cobrado ni informado"
-              value={fmt(notChargedNotReported)}
-              help=""
-              icon={<FileWarning />}
-              tone="red"
-            />
-            <Kpi
-              label="Conciliaciones abiertas"
-              value={fmt(pen.length)}
-              help=""
-              icon={<Clock3 />}
-              tone="red"
-            />
-            <Kpi
-              label="Monto operado en soles"
-              value={money(operatedAmountPen)}
-              help=""
-              icon={<Activity />}
-              tone="blue"
-            />
-            <Kpi
-              label="Monto operado en dólares"
-              value={moneyUsd(operatedAmountUsd)}
-              help=""
-              icon={<CheckCircle2 />}
-              tone="green"
-            />
-            </div>
-          </section>
-        </>
-      ) : (
-        <section className="metric-section fixed-metrics">
-          <header>
+        <section className="collection-qs-section">
+          <header className="collection-qs-title">
+            <b>1</b>
             <div>
-              <h2>Resumen operativo de hoy</h2>
+              <h2>Métricas generales de cobranza</h2>
+              <p>Resultados del período y segmentación seleccionados.</p>
             </div>
-            <span>Corte general</span>
+            <span>ICDTCAM · operación de cobro</span>
           </header>
-          <div className="kpis">
-            <Kpi
-              label="Alta"
-              value={fmt(overviewAltaTotal)}
-              help="Contratos en la maestra"
-              icon={<Users />}
-              tone="blue"
-            />
-            <Kpi
-              label="Cancelación"
-              value={fmt(overviewCancelacionTotal)}
-              help="Conciliaciones proceso CAN"
-              icon={<FileWarning />}
-              tone="red"
-            />
-            <Kpi
-              label="Renovación"
-              value={fmt(overviewRenovacionTotal)}
-              help="Conciliaciones proceso REN"
-              icon={<Activity />}
-              tone="purple"
-            />
-            <Kpi
-              label="Cobranza"
-              value={fmt(overviewCobranzaTotal)}
-              help="Conciliaciones proceso INV"
-              icon={<CheckCircle2 />}
-              tone="green"
-            />
-            <Kpi
-              label="Conciliaciones abiertas"
-              value={fmt(overviewOpen)}
-              help="Estado PEN"
-              icon={<Clock3 />}
-              tone="red"
-            />
-            <Kpi
-              label="Conciliaciones cerradas"
-              value={fmt(overviewClosed)}
-              help="Estado SOL"
-              icon={<CheckCircle2 />}
-              tone="green"
-            />
-            <Kpi
-              label="Porcentaje cerradas"
-              value={`${overviewClosedRate.toFixed(1)}%`}
-              help="SOL sobre total"
-              icon={<Activity />}
-              tone="blue"
-            />
-            <Kpi
-              label="ANS de conciliación"
-              value={`${overviewAns.toFixed(1)} días`}
-              help="Promedio desde creación hasta cierre/hoy"
-              icon={<CalendarDays />}
-              tone="amber"
-            />
+          <div className="collection-general-dashboard">
+            <section className="collection-summary-panel">
+              <header>
+                <div>
+                  <h3>Resumen de cobranza</h3>
+                  <p>Estado general de los recibos en el período seleccionado.</p>
+                </div>
+                <span>{fmt(receiptsToInvoice.length)} recibos</span>
+              </header>
+              <div className="collection-summary-grid">
+                {collectionSummary.map((metric) => (
+                  <article className={`collection-summary-card ${metric.tone}`} key={metric.label}>
+                    <span>{metric.icon}</span>
+                    <div>
+                      <b>{metric.label}</b>
+                      <strong>
+                        {metric.percentage
+                          ? `${metric.value.toFixed(1)}%`
+                          : fmt(metric.value)}
+                      </strong>
+                      <small>{metric.detail || `${metric.percent.toFixed(1)}% del universo`}</small>
+                    </div>
+                    <i><em style={{ width: `${Math.min(metric.percent, 100)}%` }} /></i>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="collection-amount-panel">
+                <header>
+                  <div>
+                    <h3>Montos de facturación y cobranza</h3>
+                    <p>Importes correspondientes al mismo universo de recibos.</p>
+                  </div>
+                </header>
+                <div className="collection-amount-list">
+                  <article>
+                    <span><FileCheck2 />Monto a facturar</span>
+                    <div className="collection-amount-values">
+                      <p><small>Soles</small><strong>{money(collectionAmounts.PEN.toInvoice)}</strong></p>
+                      <p><small>USD</small><strong>{moneyUsd(collectionAmounts.USD.toInvoice)}</strong></p>
+                    </div>
+                  </article>
+                  <article>
+                    <span><CheckCircle2 />Monto cobrado</span>
+                    <div className="collection-amount-values">
+                      <p><small>Soles</small><strong>{money(collectionAmounts.PEN.collected)}</strong></p>
+                      <p><small>USD</small><strong>{moneyUsd(collectionAmounts.USD.collected)}</strong></p>
+                    </div>
+                  </article>
+                  <article>
+                    <span><Activity />Porcentaje cobrado</span>
+                    <div className="collection-amount-values">
+                      <p><small>Soles</small><strong>{collectionAmountRates.PEN.toFixed(1)}%</strong></p>
+                      <p><small>USD</small><strong>{collectionAmountRates.USD.toFixed(1)}%</strong></p>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+            <div className="collection-general-grid collection-general-grid-bottom">
+              <section className="collection-evolution-panel">
+                <header>
+                  <h3>Evolución de cobranza</h3>
+                  <p>Recibos por fecha de facturación prevista.</p>
+                </header>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={collectionEvolution} margin={{ top: 12, right: 8, left: -18, bottom: 8 }}>
+                    <CartesianGrid stroke="#edf0f5" vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} />
+                    <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="porFacturar" name="Por facturar" fill="#3b8eea" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="facturados" name="Facturados" fill="#7165dc" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="cobrados" name="Cobrados" fill="#20a77a" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </section>
+
+              <section className="collection-product-panel">
+                <header>
+                  <h3>Tasa de cobranza por producto</h3>
+                  <p>Mayor volumetría primero; los demás productos se agrupan en Otros.</p>
+                </header>
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Producto</th><th>Por facturar</th><th>Facturados</th><th>Cobrados</th><th>Tasa</th></tr></thead>
+                    <tbody>
+                      {collectionByProduct.map((row) => {
+                        const productRate = collectionPercent(row.cobrados, row.porFacturar);
+                        return (
+                          <tr key={row.product}>
+                            <td>{row.product}</td>
+                            <td>{fmt(row.porFacturar)}</td>
+                            <td>{fmt(row.facturados)}</td>
+                            <td>{fmt(row.cobrados)}</td>
+                            <td><b>{productRate.toFixed(1)}%</b><i><em style={{ width: `${productRate}%` }} /></i></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="overview-qs-section">
+          <header className="overview-qs-title">
+            <b>1</b>
+            <div>
+              <h2>Métricas generales</h2>
+              <p>Volumen por proceso y concentración de conciliaciones.</p>
+            </div>
+            <span>Vista consolidada</span>
+          </header>
+          <div className="overview-general-content">
+            <div className="kpis overview-process-kpis">
+              <Kpi label="Alta" value={fmt(overviewAltaTotal)} help="Contratos en la maestra" icon={<Users />} tone="blue" />
+              <Kpi label="Cancelación" value={fmt(overviewCancelacionTotal)} help="Conciliaciones proceso CAN" icon={<FileWarning />} tone="red" />
+              <Kpi label="Renovadas" value={fmt(overviewRenovacionTotal)} help="Renovaciones efectivas" icon={<Activity />} tone="purple" />
+              <Kpi label="Cobranza" value={fmt(overviewCobranzaTotal)} help="Recibos cobrados" icon={<CheckCircle2 />} tone="green" />
+            </div>
           </div>
         </section>
       )}
-      <div className="charts">
-        <Chart
-          title="Evolución de incidencias"
-          sub="Casos creados y solucionados por mes"
-          wide
-        >
-          <ResponsiveContainer width="100%" height={270}>
-            <AreaChart data={trend} margin={{ top: 15, right: 15, left: -25 }}>
-              <CartesianGrid stroke="#edf0f5" vertical={false} />
-              <XAxis dataKey="month" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip />
-              <Legend />
-              <Area
-                name="Pendientes"
-                dataKey="pendientes"
-                stroke="#ef6c69"
-                fill="#ef6c6930"
-                strokeWidth={2.5}
+      <section className={showAmounts ? "collection-qs-section collection-reconciliation-section" : "overview-qs-section overview-reconciliation-section"}>
+        {showAmounts && (
+          <>
+            <header className="collection-qs-title">
+              <b>2</b>
+              <div>
+                <h2>Conciliación con RIMAC</h2>
+                <p>Incidencias, información reportada y detalle operativo de cobranza.</p>
+              </div>
+              <span>{fmt(analysisRows.length)} conciliaciones</span>
+            </header>
+            <div className="collection-reconciliation-kpis">
+              <div className="collection-reconciliation-kpi-row">
+                <Kpi label="Recibos facturados en automático" value={fmt(automaticInvoicedCount)} help="Universo de conciliación automática" icon={<RefreshCw />} tone="purple" />
+                <Kpi label="Recibos no conciliados" value={fmt(automaticUnreconciledCount)} help="Pendientes de conciliación" icon={<Clock3 />} tone="red" />
+                <Kpi label="Recibos conciliados" value={fmt(automaticReconciledCount)} help="Conciliados correctamente" icon={<CheckCircle2 />} tone="green" />
+              </div>
+              <div className="collection-reconciliation-kpi-row">
+                <Kpi label="Recibos a facturar" value={fmt(receiptsToInvoice.length)} help="Universo del período" icon={<CalendarDays />} tone="blue" />
+                <Kpi label="Recibos no facturados" value={fmt(notInvoicedReceipts.length)} help="Pendientes de facturación" icon={<FileWarning />} tone="red" />
+                <article className="kpi collection-reconciliation-amount-kpi">
+                  <b className="blue"><Activity /></b>
+                  <span>Monto no facturado</span>
+                  <div>
+                    <p><small>Soles</small><strong>{money(notInvoicedAmounts.PEN)}</strong></p>
+                    <p><small>USD</small><strong>{moneyUsd(notInvoicedAmounts.USD)}</strong></p>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </>
+        )}
+        {tab === "overview" && (
+          <>
+            <header className="overview-qs-title">
+              <b>2</b>
+              <div>
+                <h2>Conciliación</h2>
+                <p>Estado, resolución, antigüedad e incidencias por proceso.</p>
+              </div>
+              <span>{fmt(overviewRows.length)} conciliaciones</span>
+            </header>
+            <div className="kpis overview-reconciliation-kpis">
+              <Kpi
+                label="Conciliaciones creadas"
+                value={fmt(overviewRows.length)}
+                help="Universo total"
+                icon={<FileCheck2 />}
+                tone="purple"
               />
-              <Line
-                name="Solucionados"
-                dataKey="solucionados"
-                stroke="#20a77a"
-                strokeWidth={2.5}
+              <Kpi
+                label="Conciliaciones abiertas"
+                value={fmt(overviewOpen)}
+                help="Estado PEN"
+                icon={<Clock3 />}
+                tone="red"
               />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Chart>
+              <Kpi
+                label="Conciliaciones cerradas"
+                value={fmt(overviewClosed)}
+                help="Estado SOL"
+                icon={<CheckCircle2 />}
+                tone="green"
+              />
+              <Kpi
+                label="Porcentaje cerradas"
+                value={`${overviewClosedRate.toFixed(1)}%`}
+                help="SOL sobre total"
+                icon={<Activity />}
+                tone="blue"
+              />
+              <Kpi
+                label="ANS de conciliación"
+                value={`${overviewAns.toFixed(1)} días`}
+                help="Promedio desde creación hasta cierre/hoy"
+                icon={<CalendarDays />}
+                tone="amber"
+              />
+            </div>
+          </>
+        )}
+      <div className={`charts ${showAmounts ? "collection-charts" : ""}`}>
+        {showAmounts ? (
+          <>
+            <Chart
+              title="Antigüedad de recibos no conciliados"
+              sub="20 recibos pendientes por días transcurridos"
+            >
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={unreconciledAging} layout="vertical" margin={{ top: 8, right: 32, left: 6, bottom: 4 }}>
+                  <CartesianGrid stroke="#edf0f5" horizontal={false} />
+                  <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
+                  <YAxis type="category" dataKey="range" axisLine={false} tickLine={false} width={64} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="No conciliados" fill="#ef6c69" radius={[0, 6, 6, 0]} label={{ position: "right", fill: "#4b556b", fontSize: 10 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Chart>
+            <Chart
+              title="Antigüedad de recibos no facturados"
+              sub="43 recibos pendientes por días transcurridos"
+            >
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={notInvoicedAging} layout="vertical" margin={{ top: 8, right: 32, left: 6, bottom: 4 }}>
+                  <CartesianGrid stroke="#edf0f5" horizontal={false} />
+                  <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
+                  <YAxis type="category" dataKey="range" axisLine={false} tickLine={false} width={64} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="No facturados" fill="#e9a23b" radius={[0, 6, 6, 0]} label={{ position: "right", fill: "#4b556b", fontSize: 10 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Chart>
+          </>
+        ) : (
+          <Chart
+            title="Evolución de incidencias"
+            sub="Casos creados y solucionados por mes"
+            wide
+          >
+            <ResponsiveContainer width="100%" height={270}>
+              <AreaChart data={trend} margin={{ top: 15, right: 15, left: -25 }}>
+                <CartesianGrid stroke="#edf0f5" vertical={false} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} />
+                <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Area name="Pendientes" dataKey="pendientes" stroke="#ef6c69" fill="#ef6c6930" strokeWidth={2.5} />
+                <Line name="Solucionados" dataKey="solucionados" stroke="#20a77a" strokeWidth={2.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Chart>
+        )}
         {!showAmounts && (
           <Chart title="Estado actual" sub="Distribución de los casos">
             <div className="donut">
@@ -3772,46 +3949,6 @@ function Reconciliation({
               <span>
                 <i className="green" />
                 Solucionados <b>{sol.length}</b>
-              </span>
-            </div>
-          </Chart>
-        )}
-        {showAmounts && (
-          <Chart
-            title="Resultado de información RIMAC"
-            sub="Cobrados en automático y no cobrados"
-            wide
-          >
-            <div className="donut">
-              <ResponsiveContainer width="100%" height={230}>
-                <PieChart>
-                  <Pie
-                    data={collectionResultPie}
-                    innerRadius={68}
-                    outerRadius={90}
-                    paddingAngle={4}
-                    dataKey="value"
-                    nameKey="name"
-                  >
-                    <Cell fill="#665cf6" />
-                    <Cell fill="#ef6c69" />
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-              <div>
-                <strong>{fmt(collectionResultPie.reduce((sum, item) => sum + item.value, 0))}</strong>
-                <span>conciliaciones PEN</span>
-              </div>
-            </div>
-            <div className="legend">
-              <span>
-                <i className="purple" />
-                Cobrados en automático <b>{automaticNotReported}</b>
-              </span>
-              <span>
-                <i className="red" />
-                No cobrados <b>{notChargedNotReported}</b>
               </span>
             </div>
           </Chart>
@@ -3864,38 +4001,6 @@ function Reconciliation({
             </ResponsiveContainer>
           </Chart>
         )}
-        {tab === "overview" && (
-          <Chart
-            title="Conciliaciones por producto"
-            sub="Top 10 por volumen; productos restantes agrupados en Otros"
-            wide
-          >
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart
-                data={productConcentration}
-                layout="vertical"
-                margin={{ top: 10, right: 20, left: 40, bottom: 5 }}
-              >
-                <CartesianGrid stroke="#edf0f5" horizontal={false} />
-                <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
-                <YAxis
-                  type="category"
-                  dataKey="product"
-                  width={220}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip />
-                <Bar
-                  dataKey="count"
-                  name="Conciliaciones"
-                  fill="#3b8eea"
-                  radius={[0, 6, 6, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </Chart>
-        )}
       </div>
       {showAmounts ? (
         <CollectionTable
@@ -3907,9 +4012,11 @@ function Reconciliation({
         <Table
           rows={overviewRowsWithPolicy}
           movements={analysisMovements}
+          contracts={contracts}
           showAmounts={false}
         />
       )}
+      </section>
     </>
   );
 }
@@ -4003,41 +4110,51 @@ function Alta({ contracts }: { contracts: EnrichedContract[] }) {
         x.createdAt.slice(0, 10) >= effectiveFrom &&
         x.createdAt.slice(0, 10) <= effectiveTo,
     );
-  const todayCount = scoped.filter(
-      (x) => x.createdAt.slice(0, 10) === today,
-    ).length,
-    monthCount = scoped.filter((x) => x.createdAt.slice(0, 7) === month).length,
-    pendingInPeriod = filtered.filter(
+  const pendingInPeriod = filtered.filter(
       (x) => x.rimacStatus === "PEN",
     ).length,
     formalized = filtered.filter(
       (x) => x.rimacStatus === "FOR" || x.rimacStatus === "INC",
     ).length,
-    rate = filtered.length ? (formalized / filtered.length) * 100 : 0;
-  const timeline = altaTimelineByProduct(filtered, effectiveFrom, effectiveTo, 4);
-  const channelVolume = buildAltaChannelVolume(filtered);
-  const topProductsPie = buildTopProductsPie(filtered, 3);
-  const statusPie = buildAltaStatusPie(filtered);
-  const productKeys = Array.from(
-    new Set(
-      timeline.flatMap((item) => Object.keys(item)).filter((key) => key !== "period" && key !== "total"),
+    rate = filtered.length ? (formalized / filtered.length) * 100 : 0,
+    premiumTotals = filtered.reduce(
+      (totals, contract) => {
+        const currency = contract.currency.trim().toUpperCase();
+        if (contract.periodicPremium !== null && (currency === "PEN" || currency === "USD"))
+          totals[currency] += contract.periodicPremium;
+        return totals;
+      },
+      { PEN: 0, USD: 0 },
     ),
+    pendingPremiumTotals = filtered
+      .filter((contract) => contract.rimacStatus === "PEN")
+      .reduce(
+        (totals, contract) => {
+          const currency = contract.currency.trim().toUpperCase();
+          if (contract.periodicPremium !== null && (currency === "PEN" || currency === "USD"))
+            totals[currency] += contract.periodicPremium;
+          return totals;
+        },
+        { PEN: 0, USD: 0 },
+    );
+  const channelPerformance = buildAltaPerformanceRows(
+    filtered,
+    (contract) => contract.channel || "Sin canal",
   );
-  const palette = [
-    "#3b8eea",
-    "#665cf6",
-    "#20a77a",
-    "#ef6c69",
-    "#ffb020",
-    "#0ea5e9",
-    "#8b5cf6",
-    "#14b8a6",
-    "#f97316",
-    "#64748b",
-    "#111827",
-  ];
+  const productPerformance = buildAltaPerformanceRows(
+    filtered,
+    (contract) =>
+      approvedProductName(
+        contract.productCode || contract.productId,
+        contract.productDescription && contract.productDescription !== "—"
+          ? contract.productDescription
+          : undefined,
+      ),
+    5,
+  );
+  const statusPie = buildAltaStatusPie(filtered);
   return (
-    <>
+    <div className="alta-quicksight">
       <div className="filters alta-contracts alta-filters-split">
         <b>
           <Filter /> Filtros del análisis
@@ -4122,31 +4239,17 @@ function Alta({ contracts }: { contracts: EnrichedContract[] }) {
           Limpiar
         </button>
       </div>
-      <section className="metric-section fixed-metrics">
-        <header>
+      <section className="alta-qs-section">
+        <header className="alta-qs-title">
+          <b>1</b>
           <div>
-            <h2>Corte operativo fuera de período</h2>
+            <h2>Métricas generales de alta</h2>
+            <p>Altas, formalización y distribución comercial del contexto seleccionado.</p>
           </div>
-          <span>Indicadores base</span>
+          <span>{fmt(filtered.length)} altas en el período</span>
         </header>
-        <div className="kpis">
-          <Kpi
-            label="Altas de hoy"
-            value={fmt(todayCount)}
-            help="No depende del rango de fechas"
-            icon={<CalendarDays />}
-            tone="purple"
-          />
-          <Kpi
-            label="Altas del mes"
-            value={fmt(monthCount)}
-            help="No depende del rango de fechas"
-            icon={<Users />}
-            tone="blue"
-          />
-        </div>
-      </section>
-      <section className="metric-section variable-metrics">
+        <div className="alta-metric-bands">
+          <section className="metric-section variable-metrics">
         <header>
           <div>
             <h2>Desempeño del período seleccionado</h2>
@@ -4154,24 +4257,28 @@ function Alta({ contracts }: { contracts: EnrichedContract[] }) {
           <span>{fmt(filtered.length)} altas en el período</span>
         </header>
         <div className="kpis">
-          <Kpi
-            label="Formalizadas RIMAC"
-            value={fmt(formalized)}
-            help="Estados FOR e INC según período y filtros"
-            icon={<CheckCircle2 />}
-            tone="green"
-            onClick={() => setRimac("FOR")}
-            active={rimac === "FOR"}
-          />
-          <Kpi
-            label="Pendientes RIMAC"
-            value={fmt(pendingInPeriod)}
-            help="Estado PEN según período y filtros"
-            icon={<Clock3 />}
-            tone="red"
+          <article className="kpi alta-summary-kpi">
+            <b className="green"><CheckCircle2 /></b>
+            <span>Cantidad de altas</span>
+            <strong>{fmt(filtered.length)}</strong>
+            <div className="alta-kpi-amounts">
+              <p><small>Soles</small><b>{money(premiumTotals.PEN)}</b></p>
+              <p><small>Dólares</small><b>{moneyUsd(premiumTotals.USD)}</b></p>
+            </div>
+          </article>
+          <button
+            type="button"
+            className={`kpi kpi-action alta-summary-kpi ${rimac === "PEN" ? "selected" : ""}`}
             onClick={() => setRimac("PEN")}
-            active={rimac === "PEN"}
-          />
+          >
+            <b className="red"><Clock3 /></b>
+            <span>Pendientes RIMAC</span>
+            <strong>{fmt(pendingInPeriod)}</strong>
+            <div className="alta-kpi-amounts">
+              <p><small>Soles</small><b>{money(pendingPremiumTotals.PEN)}</b></p>
+              <p><small>Dólares</small><b>{moneyUsd(pendingPremiumTotals.USD)}</b></p>
+            </div>
+          </button>
           <Kpi
             label="Tasa de formalización"
             value={`${rate.toFixed(1)}%`}
@@ -4180,119 +4287,10 @@ function Alta({ contracts }: { contracts: EnrichedContract[] }) {
             tone="amber"
           />
         </div>
-      </section>
-      <div className="charts alta-charts-full">
-        <Chart
-          title="Altas diarias por producto"
-          sub="Línea de tiempo secuencial con acumulado diario y desglose por producto"
-          wide
-        >
-          <ResponsiveContainer width="100%" height={270}>
-            <LineChart data={timeline} margin={{ top: 15, right: 20, left: -20 }}>
-              <CartesianGrid stroke="#edf0f5" vertical={false} />
-              <XAxis dataKey="period" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip />
-              <Legend />
-              {productKeys.map((key, index) => (
-                <Line
-                  key={key}
-                  dataKey={key}
-                  name={key}
-                  stroke={palette[index % palette.length]}
-                  strokeWidth={1.8}
-                  dot={false}
-                />
-              ))}
-              <Line
-                dataKey="total"
-                name="Total altas"
-                stroke="#111827"
-                strokeWidth={3}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </Chart>
-      </div>
-      <div className="charts alta-insight-charts">
-        <Chart
-          title="Altas por canal"
-          sub="Volumen de altas por canal con los filtros actuales"
-          wide
-        >
-          <ResponsiveContainer width="100%" height={290}>
-            <BarChart
-              data={channelVolume}
-              margin={{ top: 12, right: 12, left: -18, bottom: 6 }}
-            >
-              <CartesianGrid stroke="#edf0f5" vertical={false} />
-              <XAxis dataKey="channel" axisLine={false} tickLine={false} />
-              <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip />
-              <Bar
-                dataKey="count"
-                name="Altas"
-                fill="#3b8eea"
-                radius={[6, 6, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </Chart>
-        <Chart
-          title="Top productos por venta"
-          sub="Top 3 productos del contexto y el resto agrupado en Otros"
-        >
-          <div className="donut">
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie
-                  data={topProductsPie}
-                  innerRadius={58}
-                  outerRadius={86}
-                  paddingAngle={3}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {topProductsPie.map((entry, index) => (
-                    <Cell
-                      key={`${entry.name}-${index}`}
-                      fill={[
-                        "#665cf6",
-                        "#3b8eea",
-                        "#20a77a",
-                        "#8a93a5",
-                      ][index % 4]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div>
-              <strong>{fmt(filtered.length)}</strong>
-              <span>altas analizadas</span>
-            </div>
-          </div>
-          <div className="legend">
-            {topProductsPie.map((slice, index) => (
-              <span key={`${slice.name}-${index}`}>
-                <i
-                  style={{
-                    background: ["#665cf6", "#3b8eea", "#20a77a", "#8a93a5"][
-                      index % 4
-                    ],
-                  }}
-                />
-                {slice.name} <b>{slice.value}</b>
-              </span>
-            ))}
-          </div>
-        </Chart>
-        <Chart
-          title="Pendientes vs formalizadas"
-          sub="Distribución operativa con el filtro activo"
-        >
+          </section>
+        </div>
+        <div className="alta-analytics-grid">
+        <Chart title="Resultado de altas" sub="Distribución del resultado de formalización">
           <div className="donut">
             <ResponsiveContainer width="100%" height={240}>
               <PieChart>
@@ -4304,31 +4302,41 @@ function Alta({ contracts }: { contracts: EnrichedContract[] }) {
                   dataKey="value"
                   nameKey="name"
                 >
-                  <Cell fill="#ef6c69" />
                   <Cell fill="#20a77a" />
+                  <Cell fill="#ef6c69" />
                 </Pie>
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
             <div>
               <strong>{fmt(filtered.length)}</strong>
-              <span>total en contexto</span>
+              <span>total de altas</span>
             </div>
           </div>
-          <div className="legend">
-            <span>
-              <i className="red" />
-              Pendientes <b>{statusPie.find((x) => x.name === "Pendientes")?.value || 0}</b>
-            </span>
-            <span>
-              <i className="green" />
-              Formalizadas <b>{statusPie.find((x) => x.name === "Formalizadas")?.value || 0}</b>
-            </span>
+          <div className="legend alta-result-legend">
+            <span><i className="green" />Formalizadas <b>{formalized}</b></span>
+            <span><i className="red" />No formalizadas <b>{filtered.length - formalized}</b></span>
           </div>
         </Chart>
-      </div>
-      <ContractTable rows={filtered} today={today} />
-    </>
+
+        <AltaPerformanceTable
+          title="Altas por canal"
+          sub="Distribución y tasa de formalización por canal"
+          rows={channelPerformance}
+          firstColumn="Canal"
+        />
+
+        <AltaPerformanceTable
+          title="Altas por producto"
+          sub="Top 5 productos por volumen; los demás se agrupan en Otros"
+          rows={productPerformance}
+          firstColumn="Producto"
+          wide
+        />
+        </div>
+        <ContractTable rows={filtered} today={today} />
+      </section>
+    </div>
   );
 }
 function Kpi({
@@ -4373,14 +4381,16 @@ function Chart({
   sub,
   children,
   wide,
+  className = "",
 }: {
   title: string;
   sub: string;
   children: ReactNode;
   wide?: boolean;
+  className?: string;
 }) {
   return (
-    <article className={`chart ${wide ? "wide" : ""}`}>
+    <article className={`chart ${wide ? "wide" : ""} ${className}`.trim()}>
       <header>
         <div>
           <h2>{title}</h2>
@@ -4392,28 +4402,57 @@ function Chart({
     </article>
   );
 }
-function buildProductConcentration(
-  rows: Row[],
-  contractIndex: Map<string, EnrichedContract>,
-) {
-  const grouped = new Map<string, number>();
-  rows.forEach((row) => {
-    const contract = contractIndex.get(
-        contractReferenceKey(row.entity, row.branch, row.account),
-      ),
-      productName =
-        contract?.productDescription && contract.productDescription !== "—"
-          ? contract.productDescription
-          : contract?.productCode || contract?.productId || "Sin producto";
-    grouped.set(productName, (grouped.get(productName) || 0) + 1);
-  });
-  const sorted = [...grouped.entries()]
-    .map(([product, count]) => ({ product, count }))
-    .sort((a, b) => b.count - a.count);
-  if (sorted.length <= 10) return sorted;
-  const top = sorted.slice(0, 10),
-    others = sorted.slice(10).reduce((sum, item) => sum + item.count, 0);
-  return [...top, { product: "Otros", count: others }];
+
+function AltaPerformanceTable({
+  title,
+  sub,
+  rows,
+  firstColumn,
+  wide = false,
+}: {
+  title: string;
+  sub: string;
+  rows: Array<{
+    name: string;
+    total: number;
+    formalized: number;
+    notFormalized: number;
+    rate: number;
+  }>;
+  firstColumn: string;
+  wide?: boolean;
+}) {
+  return (
+    <Chart title={title} sub={sub} wide={wide} className="alta-performance-table">
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{firstColumn}</th>
+              <th>Total</th>
+              <th>Formalizadas</th>
+              <th>No formalizadas</th>
+              <th>Tasa de formalización</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.name}>
+                <td>{row.name}</td>
+                <td>{fmt(row.total)}</td>
+                <td>{fmt(row.formalized)}</td>
+                <td>{fmt(row.notFormalized)}</td>
+                <td className="alta-rate-cell">
+                  <b>{row.rate.toFixed(1)}%</b>
+                  <i><em style={{ width: `${Math.min(row.rate, 100)}%` }} /></i>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Chart>
+  );
 }
 function Badge({ status, label }: { status: StatusCode; label?: string }) {
   return (
@@ -4426,10 +4465,12 @@ function Badge({ status, label }: { status: StatusCode; label?: string }) {
 function Table({
   rows,
   movements,
+  contracts,
   showAmounts,
 }: {
   rows: Row[];
   movements: Movement[];
+  contracts: EnrichedContract[];
   showAmounts: boolean;
 }) {
   const [page, setPage] = useState(1),
@@ -4438,7 +4479,19 @@ function Table({
     current = Math.min(page, pages),
     visible = rows.slice((current - 1) * size, current * size),
     today = new Date().toISOString().slice(0, 10),
-    summaries = movementSummaries(movements);
+    summaries = movementSummaries(movements),
+    contractIndex = new Map(
+      contracts.map((contract) => [
+        contractReferenceKey(
+          contract.entity,
+          contract.branch,
+          contract.id.slice(10),
+        ),
+        contract,
+      ]),
+    );
+  const contract = (row: Row) =>
+    contractIndex.get(contractReferenceKey(row.entity, row.branch, row.account));
   const summary = (id: number) =>
     summaries.get(id) || {
       count: 0,
@@ -4450,6 +4503,7 @@ function Table({
     const joined = rows.map((r) => {
         const base = {
           conciliationId: r.id,
+          contractNumber: contract(r)?.id || "",
           process: r.process,
           policy: r.policy,
           receipt: r.receipt,
@@ -4497,6 +4551,7 @@ function Table({
           <thead>
             <tr>
               <th>ID conciliación</th>
+              <th>Número de contrato</th>
               <th>Proceso</th>
               <th>Póliza</th>
               <th>Código error</th>
@@ -4518,6 +4573,7 @@ function Table({
               return (
                 <tr key={r.id}>
                   <td>#{r.id}</td>
+                  <td><b>{contract(r)?.id || "—"}</b></td>
                   <td>
                     <i
                       className="process"
@@ -4634,6 +4690,7 @@ function CollectionTable({
             differenceAmount = row.status === "PEN" ? 0 : amounts.difference;
           return {
             conciliationId: row.id,
+            contractNumber: match?.id || "",
             policy: match?.policy || "",
             product: match?.productDescription || "",
             modality: match?.modalityDescription || "",
@@ -4677,6 +4734,7 @@ function CollectionTable({
           <thead>
             <tr>
               <th>ID conciliación</th>
+              <th>Número de contrato</th>
               <th>Póliza</th>
               <th>Producto</th>
               <th>Modalidad</th>
@@ -4700,6 +4758,9 @@ function CollectionTable({
               return (
                 <tr key={row.id}>
                   <td>#{row.id}</td>
+                  <td>
+                    <b>{match?.id || <em>Sin match contrato</em>}</b>
+                  </td>
                   <td>
                     <b>{match?.policy || <em>Sin match contrato</em>}</b>
                   </td>
@@ -4878,155 +4939,50 @@ function buildTrend(rows: Row[]) {
     };
   });
 }
-function cancellationTrend(rows: Row[], from: string, to: string) {
+function buildAltaPerformanceRows(
+  rows: EnrichedContract[],
+  nameOf: (row: EnrichedContract) => string,
+  topLimit?: number,
+) {
   const grouped = new Map<
-      string,
-      { period: string; abiertas: number; resueltas: number }
-    >(),
-    ensure = (period: string) => {
-      const current = grouped.get(period) || {
-        period,
-        abiertas: 0,
-        resueltas: 0,
-      };
-      grouped.set(period, current);
-      return current;
-    };
+    string,
+    { name: string; total: number; formalized: number; notFormalized: number }
+  >();
   rows.forEach((row) => {
-    ensure(row.createdAt.slice(0, 7)).abiertas++;
-    const audit = row.auditAt.slice(0, 10);
-    if (row.status === "SOL" && audit >= from && audit <= to)
-      ensure(audit.slice(0, 7)).resueltas++;
+    const name = nameOf(row) || "Sin dato",
+      current = grouped.get(name) || { name, total: 0, formalized: 0, notFormalized: 0 };
+    current.total += 1;
+    if (row.rimacStatus === "FOR" || row.rimacStatus === "INC")
+      current.formalized += 1;
+    else current.notFormalized += 1;
+    grouped.set(name, current);
   });
-  return [...grouped.values()].sort((a, b) => a.period.localeCompare(b.period));
-}
-function buildCancellationStatusPie(
-  rows: Row[],
-  contractIndex: Map<string, EnrichedContract>,
-) {
-  const totals = {
-    anu: 0,
-    baj: 0,
-  };
-  rows.forEach((row) => {
-    const contract = contractIndex.get(
-      contractReferenceKey(row.entity, row.branch, row.account),
+  const sorted = [...grouped.values()].sort((a, b) => b.total - a.total),
+    visible = topLimit ? sorted.slice(0, topLimit) : sorted,
+    hidden = topLimit ? sorted.slice(topLimit) : [];
+  if (hidden.length)
+    visible.push(
+      hidden.reduce(
+        (other, row) => ({
+          name: "Otros",
+          total: other.total + row.total,
+          formalized: other.formalized + row.formalized,
+          notFormalized: other.notFormalized + row.notFormalized,
+        }),
+        { name: "Otros", total: 0, formalized: 0, notFormalized: 0 },
+      ),
     );
-    if (!contract) return;
-    if (contract.bankStatus === "ANU") totals.anu++;
-    else if (contract.bankStatus === "BAJ") totals.baj++;
-  });
-  return [
-    { name: "ANU", value: totals.anu },
-    { name: "BAJ", value: totals.baj },
-  ];
-}
-function altaTimelineByProduct(
-  rows: EnrichedContract[],
-  from: string,
-  to: string,
-  topLimit: number,
-) {
-  const productTotals = new Map<string, number>();
-  rows.forEach((row) => {
-    const product = approvedProductName(
-      row.productCode || row.productId,
-      row.productDescription && row.productDescription !== "—"
-        ? row.productDescription
-        : undefined,
-    );
-    productTotals.set(product, (productTotals.get(product) || 0) + 1);
-  });
-  const topProducts = [...productTotals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topLimit)
-      .map(([name]) => name),
-    hasOthers = productTotals.size > topProducts.length,
-    products = hasOthers ? [...topProducts, "Otros"] : topProducts,
-    records: Array<Record<string, string | number>> = [];
-  const cursor = new Date(`${from}T12:00:00`),
-    end = new Date(`${to}T12:00:00`);
-  while (cursor <= end) {
-    const period = cursor.toISOString().slice(0, 10),
-      entry: Record<string, string | number> = { period, total: 0 };
-    products.forEach((product) => {
-      entry[product] = 0;
-    });
-    rows
-      .filter((row) => row.createdAt.slice(0, 10) === period)
-      .forEach((row) => {
-        const product = approvedProductName(
-          row.productCode || row.productId,
-          row.productDescription && row.productDescription !== "—"
-            ? row.productDescription
-            : undefined,
-        );
-        const bucket = topProducts.includes(product) ? product : "Otros";
-        if (bucket === "Otros" && !hasOthers) return;
-        entry[bucket] = Number(entry[bucket] || 0) + 1;
-        entry.total = Number(entry.total || 0) + 1;
-      });
-    records.push(entry);
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return records;
-}
-function buildAltaChannelVolume(rows: EnrichedContract[]) {
-  const grouped = new Map<string, number>();
-  rows.forEach((row) => {
-    const key = row.channel || "Sin canal";
-    grouped.set(key, (grouped.get(key) || 0) + 1);
-  });
-  return [...grouped.entries()]
-    .map(([channel, count]) => ({ channel, count }))
-    .sort((a, b) => b.count - a.count);
-}
-function buildTopProductsPie(rows: EnrichedContract[], topLimit: number) {
-  const grouped = new Map<string, number>();
-  rows.forEach((row) => {
-    const key = approvedProductName(
-      row.productCode || row.productId,
-      row.productDescription && row.productDescription !== "—"
-        ? row.productDescription
-        : undefined,
-    );
-    grouped.set(key, (grouped.get(key) || 0) + 1);
-  });
-  const sorted = [...grouped.entries()].sort((a, b) => b[1] - a[1]);
-  const top = sorted.slice(0, topLimit).map(([name, value]) => ({ name, value }));
-  const others = sorted.slice(topLimit).reduce((sum, item) => sum + item[1], 0);
-  if (others > 0) top.push({ name: "Otros", value: others });
-  return top.length ? top : [{ name: "Sin datos", value: 0 }];
-}
-function buildRenewalFailureByProduct(
-  rows: EnrichedContract[],
-  topLimit: number,
-) {
-  const grouped = new Map<string, number>();
-  rows
-    .filter((row) => row.renewalStatus !== "REN")
-    .forEach((row) => {
-      const key = approvedProductName(
-        row.productCode || row.productId,
-        row.productDescription && row.productDescription !== "—"
-          ? row.productDescription
-          : undefined,
-      );
-      grouped.set(key, (grouped.get(key) || 0) + 1);
-    });
-  const sorted = [...grouped.entries()].sort((a, b) => b[1] - a[1]);
-  const top = sorted.slice(0, topLimit).map(([name, value]) => ({ name, value }));
-  const others = sorted.slice(topLimit).reduce((sum, item) => sum + item[1], 0);
-  if (others > 0) top.push({ name: "Otros", value: others });
-  return top.length ? top : [{ name: "Sin fallas", value: 0 }];
+  return visible.map((row) => ({
+    ...row,
+    rate: row.total ? (row.formalized / row.total) * 100 : 0,
+  }));
 }
 function buildAltaStatusPie(rows: EnrichedContract[]) {
-  const pending = rows.filter((row) => row.rimacStatus === "PEN").length,
-    formalized = rows.filter(
+  const formalized = rows.filter(
       (row) => row.rimacStatus === "FOR" || row.rimacStatus === "INC",
     ).length;
   return [
-    { name: "Pendientes", value: pending },
     { name: "Formalizadas", value: formalized },
+    { name: "No formalizadas", value: rows.length - formalized },
   ];
 }

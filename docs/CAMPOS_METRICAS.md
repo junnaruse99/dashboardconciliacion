@@ -60,17 +60,15 @@
 
 # Métricas calculadas
 
-En Renovación, Cancelación y Cobranza las tarjetas se dividen entre **corte fijo del día**, independiente de filtros, y **resultado de los filtros**. Las tres vistas admiten producto y frecuencia de pago; ambos atributos provienen del contrato enriquecido con `MAESTRA_CONTRATOS` e `ICDTCAP.CAP-ICTFOPAG`.
+En Renovación, Cancelación y Cobranza las métricas generales responden al contexto indicado en cada visual y no muestran un corte fijo del día o mes. Las tres vistas admiten producto y frecuencia de pago; ambos atributos provienen del contrato enriquecido con `MAESTRA_CONTRATOS` e `ICDTCAP.CAP-ICTFOPAG`.
 
 | Campo | Cálculo | Ubicación |
 |---|---|---|
-| Altas de hoy | Conteo de contratos con `CREATION_DATE = hoy`. | Alta |
-| Altas del mes | Conteo de contratos con `CREATION_DATE` dentro del mes actual. | Alta |
 | Pendientes históricos RIMAC | Conteo de contratos con `INSRNC_CO_CONTRACT_STATUS_TYPE = PEN`, sin filtro temporal. | Alta |
-| Formalizadas del período | Conteo de contratos del rango con `INSRNC_CO_CONTRACT_STATUS_TYPE = FOR`. | Alta |
+| Cantidad de altas | Conteo de contratos con `CREATION_DATE` dentro del rango y contexto filtrado. | Alta |
+| Monto total de altas por moneda | Suma de `CAP-ICIPRTOT` de los contratos del rango y contexto filtrado, separada en PEN y USD según `CAP-ICDIVISA`, sin conversión. Se muestra debajo de Cantidad de altas. | Alta |
+| Monto pendiente RIMAC por moneda | Suma de `CAP-ICIPRTOT` de los contratos `PEN` del rango y contexto filtrado, separada en PEN y USD según `CAP-ICDIVISA`, sin conversión. Se muestra debajo de Pendientes RIMAC. | Alta |
 | Tasa de formalización | `Formalizadas del período / contratos filtrados del período × 100`. | Alta |
-| Altas por período | Conteo de contratos agrupados por día, mes o año de `CREATION_DATE`. | Alta |
-| Formalizadas por período | Conteo de contratos `FOR` agrupados por día, mes o año de `CREATION_DATE`. | Alta |
 | Contratos por producto | Conteo de contratos agrupados por `INSURANCE_PRODUCT_ID`. | Alta |
 | Pendientes por producto | Conteo de contratos `PEN` agrupados por `INSURANCE_PRODUCT_ID`. | Alta |
 | Cancelados hoy | Conteo de contratos `BAJ` con `CAP-ICFBAIXA = hoy` más contratos `ANU` con `CAP-ICFANCON = hoy`. | Cancelación |
@@ -83,25 +81,36 @@ En Renovación, Cancelación y Cobranza las tarjetas se dividen entre **corte fi
 | Motivos pendientes | Conteo de conciliaciones `PEN` agrupado por `ERROR_CODE_ID`. | Cancelación |
 | Antigüedad de abiertas | Días entre `CREATION_DATE` y hoy para conciliaciones `PEN`, agrupados en bandas. | Cancelación |
 | Pólizas previstas para renovar | Contratos activos cuyo `CAP-ICFVENPO` pertenece al período seleccionado; excluye estados Banco `BAJ`, `ANU` y `ERR`. | Renovación |
-| Confirmadas por RIMAC | Pólizas cuya fecha esperada de confirmación ya llegó y no tienen una incidencia `PRE_*` abierta. Es un resultado inferido. | Renovación |
-| Recibos enviados por RIMAC | Pólizas cuya fecha esperada de recibos ya llegó y no tienen una incidencia `REN_*` abierta. Es un resultado inferido. | Renovación |
+| Confirmadas por RIMAC | Pólizas previstas para renovar menos las que tienen incidencia abierta `PRE_*` y menos las rechazadas (`NRE`). | Renovación |
+| Recibos enviados por RIMAC | Casos confirmados cuyo estado de renovación del recibo es `PRN`. | Renovación |
+| Falta enviar recibos | Casos confirmados con estado `PRE` cuando ya corresponde la ventana de envío de recibos (D-45). | Renovación |
+| Aún no corresponde envío de recibos | Casos confirmados cuya ventana de envío de recibos aún no llega (antes de D-45). | Renovación |
 | En riesgo sin confirmación | Pólizas aún vigentes con incidencia `PRE_NOTFOUND_ERR` o `PRE_AUT_NOTFOUND_ERR` en estado `PEN`. | Renovación |
 | Por renovar con información pendiente | Pólizas aún vigentes con una incidencia `PRE_*` o `REN_*` abierta. | Renovación |
-| No renovación por decisión RIMAC | No calculable con las fuentes actuales; requiere un indicador o motivo explícito proporcionado por RIMAC. | Renovación |
-| Renovadas hoy | Contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFVENPO = hoy`. | Renovación |
+| No renovación por decisión RIMAC | Pólizas con estado de renovación `NRE`. | Renovación |
+| Renovadas hoy | Contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFECTE = hoy`. | Renovación |
 | Vencidas sin renovar por información pendiente | Contratos con vigencia terminada, estado distinto de `REN` e incidencia `PRE_*` o `REN_*` abierta. | Renovación |
 | Renovadas en el mes | Contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFVENPO` dentro del mes actual. | Renovación |
 | Días para regularizar | Diferencia firmada en días calendario entre hoy y `CAP-ICFVENPO`; un valor negativo indica vigencia vencida. | Renovación |
-| Recibos cobrados | Conteo de movimientos ICDTCAM con `ICFECOB` real y distinto de `01-01-01`. | Cobranza |
-| Cobrados hoy | Conteo de movimientos con `ICFECOB = hoy`. | Cobranza |
-| Cobrados del mes | Conteo de movimientos con `ICFECOB` dentro del mes actual. | Cobranza |
-| Recibos intentados hoy | Conteo de movimientos con `ICFELIQ = hoy` e `ICNUMINT > 0`. | Cobranza |
-| Intentos realizados hoy | Suma de `ICNUMINT` para movimientos con `ICFELIQ = hoy` e `ICNUMINT > 0`. | Cobranza |
-| Efectividad de cobro | `Recibos con ICFELIQ = hoy, ICNUMINT > 0 e ICFECOB = hoy / recibos con ICFELIQ = hoy e ICNUMINT > 0 × 100`. | Cobranza |
+| Recibos a facturar | Conteo de movimientos ICDTCAM con `ICFELIQ` dentro del rango filtrado. El escenario demostrativo completo contiene 223. | Cobranza |
+| Recibos facturados | Conteo de recibos con estado demostrativo `FAC`. El escenario completo contiene 180; el campo físico productivo queda pendiente de confirmación de negocio. | Cobranza |
+| Recibos cobrados | Conteo de movimientos ICDTCAM con `ICFECOB` real y dentro del rango filtrado. El escenario demostrativo completo contiene 177. | Cobranza |
+| Tasa de cobranza | `Recibos cobrados / recibos a facturar × 100`; para el escenario completo, `177 / 223 = 79,4 %`. | Cobranza |
+| Monto a facturar | Suma del importe facturable de los recibos por moneda. En producción corresponde a `ICDTCAM.ICIPRTOT`. | Cobranza |
+| Monto cobrado | Suma del importe neto cobrado por moneda. En producción corresponde a `ICDTCAM.ICPRREC`. | Cobranza |
+| Porcentaje cobrado | `Monto cobrado / monto a facturar × 100`. | Cobranza |
+| Evolución de facturación y cobranza | Conteos de recibos por facturar, facturados y cobrados agrupados por `ICFELIQ`. | Cobranza |
+| Tasa por producto | Recibos cobrados sobre recibos a facturar, ordenados por volumetría; se muestran Top 5 productos y el resto se agrupa en `Otros`. | Cobranza |
+| Recibos facturados en automático | Universo demostrativo de facturación automática. En la vista completa se fija en 100 hasta confirmar el campo físico productivo. | Conciliación Cobranza |
+| Recibos no conciliados | Parte pendiente del universo facturado en automático. En el escenario demostrativo son 20. | Conciliación Cobranza |
+| Recibos conciliados | Diferencia entre facturados en automático y no conciliados. En el escenario demostrativo son 80 y debe cumplirse `20 + 80 = 100`. | Conciliación Cobranza |
+| Recibos no facturados | `Recibos a facturar - recibos facturados`; para el escenario completo, `223 - 180 = 43`. | Conciliación Cobranza |
+| Monto no facturado | Suma del importe facturable de los recibos con estado de facturación pendiente, separada por moneda. En el escenario completo son S/ 13.760,00 y USD 0,00. | Conciliación Cobranza |
+| Antigüedad de no conciliados | Recibos no conciliados agrupados por días desde `ICFELIQ` en bandas mutuamente excluyentes: 1-3, 4-5, 6-7 y más de 7 días. Las bandas deben sumar el KPI de no conciliados. | Conciliación Cobranza |
+| Antigüedad de no facturados | Recibos no facturados agrupados por días desde `ICFELIQ` en bandas mutuamente excluyentes: 1-3, 4-5, 6-7 y más de 7 días. Las bandas deben sumar el KPI de no facturados. | Conciliación Cobranza |
 | Cobro automático no informado | Conteo de conciliaciones `INV`, `PEN` e `INV_RIMAC_NOT_SENT`. | Cobranza |
 | No cobrado ni informado | Conteo de conciliaciones `INV`, `PEN` e `INV_RIMAC_NOT_CHAR`. | Cobranza |
 | Conciliaciones abiertas | Conteo de conciliaciones `INV` con `CONCILIATION_STATUS_TYPE = PEN`. | Cobranza |
 | Monto informado | Suma de `PAYMENT_AMOUNT` de movimientos `INV` relacionados. | Cobranza |
 | Monto operado | Suma de `OPERATED_AMOUNT` de movimientos `INV` relacionados. | Cobranza |
 | Diferencia de centavos | `Monto informado - monto operado`. | Cobranza |
-| Resultado de información RIMAC | Conteo de conciliaciones `INV` y `PEN` agrupado por `INV_RIMAC_NOT_SENT` e `INV_RIMAC_NOT_CHAR`. | Cobranza |
