@@ -1515,7 +1515,7 @@ function Cancellation({
   const cancellationReasons = [
       { name: "Impago", value: 2987, color: "#ff5c62" },
       { name: "Fin de vigencia", value: 1245, color: "#2f73ed" },
-      { name: "Solicitud del cliente", value: 660, color: "#f5a11a" },
+      { name: "Inmediata", value: 660, color: "#f5a11a" },
     ],
     cancellationMonthly = [
       { period: "Ene 2026", impago: 430, finVigencia: 180, solicitud: 95 },
@@ -1640,8 +1640,8 @@ function Cancellation({
           <article className="cancellation-business-kpi total"><CalendarDays /><span>Total de contratos cancelados</span><strong>{fmt(4892)}</strong><small>100% del total</small></article>
           <article className="cancellation-business-kpi impago"><FileWarning /><span>Cancelados por impago</span><strong>{fmt(2987)}</strong><small>61.1% del total</small></article>
           <article className="cancellation-business-kpi expiry"><CalendarDays /><span>Cancelados por fin de vigencia</span><strong>{fmt(1245)}</strong><small>25.4% del total</small></article>
-          <article className="cancellation-business-kpi request"><Users /><span>Cancelados por solicitud del cliente</span><strong>{fmt(660)}</strong><small>13.5% del total</small></article>
-          <article className="cancellation-business-kpi financial premium"><Activity /><span>Prima total cancelada por solicitud del cliente</span><strong>{moneyUsd(520340)}</strong><b>{money(1284660)}</b></article>
+          <article className="cancellation-business-kpi request"><Users /><span>Cancelación inmediata</span><strong>{fmt(660)}</strong><small>13.5% del total</small></article>
+          <article className="cancellation-business-kpi financial premium"><Activity /><span>Prima total de cancelación inmediata</span><strong>{moneyUsd(520340)}</strong><b>{money(1284660)}</b></article>
           <article className="cancellation-business-kpi financial refund"><Activity /><span>Monto total de devolución</span><strong>{moneyUsd(42530)}</strong><b>{money(98420)}</b></article>
           <article className="cancellation-business-kpi financial commission"><Activity /><span>Comisión total devuelta</span><strong>{moneyUsd(7890)}</strong><b>{money(18760)}</b></article>
         </div>
@@ -1655,7 +1655,7 @@ function Cancellation({
                 <Tooltip /><Legend />
                 <Bar dataKey="impago" name="Impago" stackId="motivo" fill="#ff5c62" />
                 <Bar dataKey="finVigencia" name="Fin de vigencia" stackId="motivo" fill="#2f73ed" />
-                <Bar dataKey="solicitud" name="Solicitud del cliente" stackId="motivo" fill="#f5a11a" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="solicitud" name="Inmediata" stackId="motivo" fill="#f5a11a" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </Chart>
@@ -2295,7 +2295,7 @@ function Renewal({
         label: "Rechazadas por RIMAC",
         detail: "Estado de renovación NRE",
         contracts: rejectedByRimacContracts,
-        tone: "red",
+        tone: "amber",
         icon: <X />,
       },
       {
@@ -2309,7 +2309,7 @@ function Renewal({
         label: "En peligro de no renovación",
         detail: `${fmt(acceptedPendingInformationContracts.slice(24).length)} sin información de RIMAC + ${fmt(preMissingNonAutomaticContracts.length)} pendientes no automáticas`,
         contracts: renewalRiskContracts,
-        tone: "amber",
+        tone: "red",
         icon: <FileWarning />,
       },
     ],
@@ -2339,21 +2339,21 @@ function Renewal({
         label: "No renovadas por decisión de RIMAC",
         detail: "Estado de renovación NRE",
         contracts: outcomeRejectedByRimacContracts,
-        tone: "red",
+        tone: "amber",
         icon: <ShieldCheck />,
       },
       {
         label: "No renovadas por cliente",
         detail: "Decisión del cliente",
         contracts: outcomeCustomerDecisionContracts,
-        tone: "neutral",
+        tone: "red",
         icon: <Users />,
       },
       {
         label: "No renovadas por información tardía",
         detail: "Incidencia PRE o recibos abierta al vencer",
         contracts: outcomeMissingRimacInformationContracts,
-        tone: "amber",
+        tone: "red",
         icon: <Clock3 />,
       },
     ],
@@ -2443,37 +2443,40 @@ function Renewal({
         color: "#7b8495",
       },
     ],
+    withinUrgencyWindow = (contract: EnrichedContract, limit: number) =>
+      signedCalendarDays(today, contract.expiryDate) <= limit,
     preUrgencyContracts = [
       ...preMissingNonAutomaticContracts,
       ...preMissingAutomaticContracts,
-    ],
+    ].filter((contract) => withinUrgencyWindow(contract, 50)),
     preUrgencySourceRows = [
       {
         name: "Pendientes no automáticas",
-        casos: preMissingNonAutomaticContracts.length,
+        casos: preMissingNonAutomaticContracts.filter((contract) => withinUrgencyWindow(contract, 50)).length,
       },
       {
         name: "Pendientes automáticas",
-        casos: preMissingAutomaticContracts.length,
+        casos: preMissingAutomaticContracts.filter((contract) => withinUrgencyWindow(contract, 50)).length,
       },
     ],
     renewalUrgencyContracts = [
       ...acceptedPendingInformationContracts.slice(24),
       ...acceptedPendingInformationContracts.slice(0, 24),
-    ],
+    ].filter((contract) => withinUrgencyWindow(contract, 45)),
     renewalUrgencySourceRows = [
       {
         name: "Falta información de RIMAC",
-        casos: acceptedPendingInformationContracts.slice(24).length,
+        casos: acceptedPendingInformationContracts.slice(24).filter((contract) => withinUrgencyWindow(contract, 45)).length,
       },
       {
         name: "Información pendiente automática",
-        casos: acceptedPendingInformationContracts.slice(0, 24).length,
+        casos: acceptedPendingInformationContracts.slice(0, 24).filter((contract) => withinUrgencyWindow(contract, 45)).length,
       },
     ],
     buildUrgencyAlerts = (
       primaryContracts: EnrichedContract[],
       secondaryContracts: EnrichedContract[],
+      limit: number,
     ) => [
       {
         name: "Vigencia vencida",
@@ -2487,8 +2490,8 @@ function Renewal({
       ...[
         ["0 a 7 días", 0, 7],
         ["8 a 15 días", 8, 15],
-        ["16 a 30 días", 16, 30],
-        ["Más de 30 días", 31, Number.POSITIVE_INFINITY],
+        ["16 a 29 días", 16, 29],
+        [`30 a ${limit} días`, 30, limit],
       ].map(([name, minimum, maximum]) => ({
         name: String(name),
         primary: primaryContracts.filter((contract) => {
@@ -2504,10 +2507,12 @@ function Renewal({
     preUrgencyAlerts = buildUrgencyAlerts(
       preMissingNonAutomaticContracts,
       preMissingAutomaticContracts,
+      50,
     ),
     renewalUrgencyAlerts = buildUrgencyAlerts(
       acceptedPendingInformationContracts.slice(24),
       acceptedPendingInformationContracts.slice(0, 24),
+      45,
     );
   const periodicPremiumTotals = (group: EnrichedContract[]) =>
       group.reduce(
@@ -2741,19 +2746,19 @@ function Renewal({
                   return (
                     <tr key={`${flow.response}-${flow.receipt}-${flow.result}`}>
                       {index === 0 && (
-                        <td rowSpan={flowRows.length} className="merged-total-cell">
+                        <td rowSpan={flowRows.length} className="merged-total-cell renewal-tone-blue">
                           {metricValue(periodContracts)}
                           <small>Total de pólizas a renovar</small>
                         </td>
                       )}
                       {index === responseStart && (
-                        <td rowSpan={responseRows.length} className="merged-response-cell">
+                        <td rowSpan={responseRows.length} className={`merged-response-cell renewal-tone-${flow.response === "Aceptadas" || flow.response === "Pendientes automática" ? "violet" : flow.response === "Pendientes no automática" ? "red" : "neutral"}`}>
                           <b>{flow.response}</b>
                           {metricValue(responseRows.flatMap((row) => row.contracts))}
                         </td>
                       )}
                       {index === receiptStart && (
-                        <td rowSpan={receiptRows.length} className="merged-renewal-cell">
+                        <td rowSpan={receiptRows.length} className={`merged-renewal-cell renewal-tone-${flow.receipt === "Por renovar" || flow.receipt === "Por renovar con información pendiente" ? "green" : flow.receipt === "Falta de información de RIMAC" || flow.receipt === "Pendientes no automática" ? "red" : flow.receipt === "Rechazados RIMAC" ? "amber" : "neutral"}`}>
                           {flow.receipt && (
                             <>
                               <b>{flow.receipt}</b>
@@ -3042,94 +3047,47 @@ function Renewal({
             </table>
           </div>
         </Chart>
-        <Chart
-          title={`PRE · Confirmación pendiente (${fmt(preUrgencyContracts.length)})`}
-          sub="Confirmaciones pendientes automáticas y no automáticas, agrupadas por días hasta el fin de vigencia"
-          className="renewal-urgency renewal-urgency-critical"
-        >
-          <div className="urgency-source-summary">
-            {preUrgencySourceRows.map((source) => (
-              <span key={source.name}>
-                <b>{fmt(source.casos)}</b> {source.name}
-              </span>
-            ))}
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={preUrgencyAlerts}
-              layout="vertical"
-              margin={{ top: 12, right: 18, left: 8, bottom: 8 }}
-            >
-              <CartesianGrid stroke="#edf0f5" horizontal={false} />
-              <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={130}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip />
-              <Bar
-                dataKey="primary"
-                name="Pendientes no automáticas"
-                stackId="urgency"
-                fill="#b4232f"
-              />
-              <Bar
-                dataKey="secondary"
-                name="Pendientes automáticas"
-                stackId="urgency"
-                fill="#e9a23b"
-                radius={[0, 6, 6, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </Chart>
-        <Chart
-          title={`REN · Información pendiente de RIMAC (${fmt(renewalUrgencyContracts.length)})`}
-          sub="Pólizas en renovación con información pendiente, agrupadas por días hasta el fin de vigencia"
-          className="renewal-urgency renewal-urgency-operational"
-        >
-          <div className="urgency-source-summary">
-            {renewalUrgencySourceRows.map((source) => (
-              <span key={source.name}>
-                <b>{fmt(source.casos)}</b> {source.name}
-              </span>
-            ))}
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={renewalUrgencyAlerts}
-              layout="vertical"
-              margin={{ top: 12, right: 18, left: 8, bottom: 8 }}
-            >
-              <CartesianGrid stroke="#edf0f5" horizontal={false} />
-              <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={130}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip />
-              <Bar
-                dataKey="primary"
-                name="Falta información de RIMAC"
-                stackId="urgency"
-                fill="#2168ae"
-              />
-              <Bar
-                dataKey="secondary"
-                name="Información pendiente automática"
-                stackId="urgency"
-                fill="#46a99a"
-                radius={[0, 6, 6, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </Chart>
+        {[
+          { title: "Confirmación de renovación pendiente", total: preUrgencyContracts.length, sources: preUrgencySourceRows, rows: preUrgencyAlerts, secondaryTone: "violet" },
+          { title: "Recibos con información pendiente de RIMAC", total: renewalUrgencyContracts.length, sources: renewalUrgencySourceRows, rows: renewalUrgencyAlerts, secondaryTone: "green" },
+        ].map((table) => (
+          <section className="table-card renewal-urgency-table" key={table.title}>
+            <header><h2>{table.title}</h2></header>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Días hasta fin de vigencia</th>
+                    <th scope="col" className="renewal-tone-red">{table.sources[0].name}</th>
+                    <th scope="col" className={`renewal-tone-${table.secondaryTone}`}>{table.sources[1].name}</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">% del total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {table.rows.map((row) => (
+                    <tr key={row.name}>
+                      <th scope="row">{row.name}</th>
+                      <td className="renewal-tone-red">{fmt(row.primary)}</td>
+                      <td className={`renewal-tone-${table.secondaryTone}`}>{fmt(row.secondary)}</td>
+                      <td>{fmt(row.primary + row.secondary)}</td>
+                      <td>{(table.total ? ((row.primary + row.secondary) / table.total) * 100 : 0).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row">Total</th>
+                    <td>{fmt(table.sources[0].casos)}</td>
+                    <td>{fmt(table.sources[1].casos)}</td>
+                    <td>{fmt(table.total)}</td>
+                    <td>{table.total ? "100.0%" : "0.0%"}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+        ))}
       </div>
         <RenewalTable
           conciliationRows={selectedRows}
@@ -3444,20 +3402,22 @@ function Reconciliation({
     notInvoicedReceipts = receiptsToInvoice.filter(
       (receipt) => receipt.billingStatus !== "FAC",
     ),
-    notInvoicedAmounts = notInvoicedReceipts.reduce(
-      (totals, receipt) => {
-        totals[receiptCurrency(receipt)] += receipt.invoicedAmount;
-        return totals;
-      },
-      { PEN: 0, USD: 0 },
-    ),
+    sumReceiptAmounts = (receipts: IcdtcamRecord[]) =>
+      receipts.reduce(
+        (totals, receipt) => {
+          totals[receiptCurrency(receipt)] += receipt.invoicedAmount;
+          return totals;
+        },
+        { PEN: 0, USD: 0 },
+      ),
     automaticInvoicedCount = Math.min(
       invoicedReceipts.length,
       Math.round((invoicedReceipts.length * 100) / 180),
     ),
     automaticUnreconciledCount = Math.round(automaticInvoicedCount * 0.2),
-    automaticReconciledCount =
-      automaticInvoicedCount - automaticUnreconciledCount,
+    automaticInvoicedReceipts = invoicedReceipts.slice(0, automaticInvoicedCount),
+    otherInvoicedReceipts = invoicedReceipts.slice(automaticInvoicedCount),
+    automaticReconciledReceipts = automaticInvoicedReceipts.slice(automaticUnreconciledCount),
     buildReceiptAging = (receipts: IcdtcamRecord[]) => {
       const bands = [
         { range: "1-3 días", count: 0 },
@@ -3474,7 +3434,7 @@ function Reconciliation({
       });
       return bands;
     },
-    automaticUnreconciledReceipts = invoicedReceipts.slice(
+    automaticUnreconciledReceipts = automaticInvoicedReceipts.slice(
       0,
       automaticUnreconciledCount,
     ),
@@ -3487,81 +3447,8 @@ function Reconciliation({
       USD: collectionAmounts.USD.toInvoice
         ? (collectionAmounts.USD.collected / collectionAmounts.USD.toInvoice) * 100
         : 0,
-    },
-    collectionEvolutionMap = new Map<
-      string,
-      {
-        date: string;
-        label: string;
-        porFacturar: number;
-        facturados: number;
-        cobrados: number;
-      }
-    >(),
-    collectionProductMap = new Map<
-      string,
-      {
-        product: string;
-        porFacturar: number;
-        facturados: number;
-        cobrados: number;
-      }
-    >();
-  receiptsToInvoice.forEach((receipt) => {
-    const evolution = collectionEvolutionMap.get(receipt.settlementDate) || {
-      date: receipt.settlementDate,
-      label: dateFmt(receipt.settlementDate).replace(/\s+de\s+/g, " "),
-      porFacturar: 0,
-      facturados: 0,
-      cobrados: 0,
     };
-    evolution.porFacturar += 1;
-    if (receipt.billingStatus === "FAC") evolution.facturados += 1;
-    if (receipt.collectionStatus === "COB" && inCollectionRange(receipt.collectionDate))
-      evolution.cobrados += 1;
-    collectionEvolutionMap.set(receipt.settlementDate, evolution);
-
-    const contract = contractById.get(receipt.key),
-      product = contract
-        ? contract.productDescription ||
-          approvedProductName(contract.productCode || contract.productId)
-        : "Sin producto",
-      productRow = collectionProductMap.get(product) || {
-        product,
-        porFacturar: 0,
-        facturados: 0,
-        cobrados: 0,
-      };
-    productRow.porFacturar += 1;
-    if (receipt.billingStatus === "FAC") productRow.facturados += 1;
-    if (receipt.collectionStatus === "COB" && inCollectionRange(receipt.collectionDate))
-      productRow.cobrados += 1;
-    collectionProductMap.set(product, productRow);
-  });
-  const collectionEvolution = [...collectionEvolutionMap.values()].sort((a, b) =>
-      a.date.localeCompare(b.date),
-    ),
-    productRows = [...collectionProductMap.values()].sort(
-      (a, b) => b.porFacturar - a.porFacturar,
-    ),
-    otherProductRows = productRows.slice(5),
-    collectionByProduct = [
-      ...productRows.slice(0, 5),
-      ...(otherProductRows.length
-        ? [
-            otherProductRows.reduce(
-              (other, row) => ({
-                product: "Otros",
-                porFacturar: other.porFacturar + row.porFacturar,
-                facturados: other.facturados + row.facturados,
-                cobrados: other.cobrados + row.cobrados,
-              }),
-              { product: "Otros", porFacturar: 0, facturados: 0, cobrados: 0 },
-            ),
-          ]
-        : []),
-    ],
-    collectionPercent = (value: number, total = receiptsToInvoice.length) =>
+  const collectionPercent = (value: number, total = receiptsToInvoice.length) =>
       total ? (value / total) * 100 : 0,
     collectionSummary = [
       {
@@ -3715,52 +3602,6 @@ function Reconciliation({
                 </div>
               </section>
 
-            <div className="collection-general-grid collection-general-grid-bottom">
-              <section className="collection-evolution-panel">
-                <header>
-                  <h3>Evolución de cobranza</h3>
-                  <p>Recibos por fecha de facturación prevista.</p>
-                </header>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={collectionEvolution} margin={{ top: 12, right: 8, left: -18, bottom: 8 }}>
-                    <CartesianGrid stroke="#edf0f5" vertical={false} />
-                    <XAxis dataKey="label" axisLine={false} tickLine={false} />
-                    <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="porFacturar" name="Por facturar" fill="#3b8eea" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="facturados" name="Facturados" fill="#7165dc" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="cobrados" name="Cobrados" fill="#20a77a" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </section>
-
-              <section className="collection-product-panel">
-                <header>
-                  <h3>Tasa de cobranza por producto</h3>
-                  <p>Mayor volumetría primero; los demás productos se agrupan en Otros.</p>
-                </header>
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Producto</th><th>Por facturar</th><th>Facturados</th><th>Cobrados</th><th>Tasa</th></tr></thead>
-                    <tbody>
-                      {collectionByProduct.map((row) => {
-                        const productRate = collectionPercent(row.cobrados, row.porFacturar);
-                        return (
-                          <tr key={row.product}>
-                            <td>{row.product}</td>
-                            <td>{fmt(row.porFacturar)}</td>
-                            <td>{fmt(row.facturados)}</td>
-                            <td>{fmt(row.cobrados)}</td>
-                            <td><b>{productRate.toFixed(1)}%</b><i><em style={{ width: `${productRate}%` }} /></i></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
           </div>
         </section>
       ) : (
@@ -3794,24 +3635,19 @@ function Reconciliation({
               </div>
               <span>{fmt(analysisRows.length)} conciliaciones</span>
             </header>
-            <div className="collection-reconciliation-kpis">
-              <div className="collection-reconciliation-kpi-row">
-                <Kpi label="Recibos facturados en automático" value={fmt(automaticInvoicedCount)} help="Universo de conciliación automática" icon={<RefreshCw />} tone="purple" />
-                <Kpi label="Recibos no conciliados" value={fmt(automaticUnreconciledCount)} help="Pendientes de conciliación" icon={<Clock3 />} tone="red" />
-                <Kpi label="Recibos conciliados" value={fmt(automaticReconciledCount)} help="Conciliados correctamente" icon={<CheckCircle2 />} tone="green" />
+            <div className="collection-receipt-flow" aria-label="Resumen de facturación y conciliación">
+              <div className="collection-billing-kpis">
+                <CollectionFlowNode label="Recibos a facturar" count={receiptsToInvoice.length} amounts={sumReceiptAmounts(receiptsToInvoice)} tone="blue" icon={<CalendarDays />} />
+                <CollectionFlowNode label="Facturados" count={otherInvoicedReceipts.length} amounts={sumReceiptAmounts(otherInvoicedReceipts)} tone="green" icon={<FileCheck2 />} />
+                <CollectionFlowNode label="En automático" count={automaticInvoicedReceipts.length} amounts={sumReceiptAmounts(automaticInvoicedReceipts)} tone="violet" icon={<RefreshCw />} />
+                <CollectionFlowNode label="No facturados" count={notInvoicedReceipts.length} amounts={sumReceiptAmounts(notInvoicedReceipts)} tone="red" icon={<FileWarning />} />
               </div>
-              <div className="collection-reconciliation-kpi-row">
-                <Kpi label="Recibos a facturar" value={fmt(receiptsToInvoice.length)} help="Universo del período" icon={<CalendarDays />} tone="blue" />
-                <Kpi label="Recibos no facturados" value={fmt(notInvoicedReceipts.length)} help="Pendientes de facturación" icon={<FileWarning />} tone="red" />
-                <article className="kpi collection-reconciliation-amount-kpi">
-                  <b className="blue"><Activity /></b>
-                  <span>Monto no facturado</span>
-                  <div>
-                    <p><small>Soles</small><strong>{money(notInvoicedAmounts.PEN)}</strong></p>
-                    <p><small>USD</small><strong>{moneyUsd(notInvoicedAmounts.USD)}</strong></p>
-                  </div>
-                </article>
+              <h3 className="collection-automatic-heading">Conciliación de los {fmt(automaticInvoicedReceipts.length)} recibos en automático</h3>
+              <div className="collection-flow-outcomes">
+                <CollectionFlowNode label="Conciliados" count={automaticReconciledReceipts.length} amounts={sumReceiptAmounts(automaticReconciledReceipts)} tone="green" icon={<CheckCircle2 />} />
+                <CollectionFlowNode label="No conciliados" count={automaticUnreconciledReceipts.length} amounts={sumReceiptAmounts(automaticUnreconciledReceipts)} tone="red" icon={<Clock3 />} />
               </div>
+              <p className="collection-flow-demo">Facturación y conciliación automáticas · Clasificación demostrativa</p>
             </div>
           </>
         )}
@@ -3867,34 +3703,28 @@ function Reconciliation({
       <div className={`charts ${showAmounts ? "collection-charts" : ""}`}>
         {showAmounts ? (
           <>
-            <Chart
-              title="Antigüedad de recibos no conciliados"
-              sub="20 recibos pendientes por días transcurridos"
-            >
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={unreconciledAging} layout="vertical" margin={{ top: 8, right: 32, left: 6, bottom: 4 }}>
-                  <CartesianGrid stroke="#edf0f5" horizontal={false} />
-                  <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
-                  <YAxis type="category" dataKey="range" axisLine={false} tickLine={false} width={64} />
-                  <Tooltip />
-                  <Bar dataKey="count" name="No conciliados" fill="#ef6c69" radius={[0, 6, 6, 0]} label={{ position: "right", fill: "#4b556b", fontSize: 10 }} />
-                </BarChart>
-              </ResponsiveContainer>
-            </Chart>
-            <Chart
-              title="Antigüedad de recibos no facturados"
-              sub="43 recibos pendientes por días transcurridos"
-            >
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={notInvoicedAging} layout="vertical" margin={{ top: 8, right: 32, left: 6, bottom: 4 }}>
-                  <CartesianGrid stroke="#edf0f5" horizontal={false} />
-                  <XAxis type="number" axisLine={false} tickLine={false} allowDecimals={false} />
-                  <YAxis type="category" dataKey="range" axisLine={false} tickLine={false} width={64} />
-                  <Tooltip />
-                  <Bar dataKey="count" name="No facturados" fill="#e9a23b" radius={[0, 6, 6, 0]} label={{ position: "right", fill: "#4b556b", fontSize: 10 }} />
-                </BarChart>
-              </ResponsiveContainer>
-            </Chart>
+            {[
+              { title: "Antigüedad de recibos no conciliados", bands: unreconciledAging },
+              { title: "Antigüedad de recibos no facturados", bands: notInvoicedAging },
+            ].map(({ title, bands }) => (
+              <section className="table-card collection-aging-table" key={title}>
+                <header><h2>{title}</h2></header>
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th scope="col">Antigüedad</th><th scope="col">Cantidad de recibos</th></tr></thead>
+                    <tbody>
+                      {bands.map((band) => (
+                        <tr key={band.range}>
+                          <th scope="row">{band.range === "7+ días" ? "Más de 7 días" : band.range}</th>
+                          <td>{fmt(band.count)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr><th scope="row">Total</th><td>{fmt(bands.reduce((total, band) => total + band.count, 0))}</td></tr></tfoot>
+                  </table>
+                </div>
+              </section>
+            ))}
           </>
         ) : (
           <Chart
@@ -4337,6 +4167,29 @@ function Alta({ contracts }: { contracts: EnrichedContract[] }) {
         <ContractTable rows={filtered} today={today} />
       </section>
     </div>
+  );
+}
+function CollectionFlowNode({
+  label,
+  count,
+  amounts,
+  tone,
+  icon,
+}: {
+  label: string;
+  count: number;
+  amounts: { PEN: number; USD: number };
+  tone: string;
+  icon: ReactNode;
+}) {
+  return (
+    <article className={`collection-flow-node ${tone}`} aria-label={label}>
+      <header><span>{icon}</span><h3>{label}</h3><strong>{fmt(count)}</strong></header>
+      <dl>
+        <div><dt>Soles</dt><dd>{money(amounts.PEN)}</dd></div>
+        <div><dt>USD</dt><dd>{moneyUsd(amounts.USD)}</dd></div>
+      </dl>
+    </article>
   );
 }
 function Kpi({

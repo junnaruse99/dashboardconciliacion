@@ -92,6 +92,7 @@ Este documento es la fuente única de reglas funcionales y de datos del dashboar
 
 ### 5.2 Cancelación
 
+- Mostrar la categoría antes denominada Solicitud del cliente como **Inmediata** en las tarjetas, leyendas y gráficos, sin modificar sus cantidades ni importes.
 - Para cancelados, usar CONTRACT_STATUS_ID del banco:
   - BAJ con CAP-ICFBAIXA.
   - ANU con CAP-ICFANCON.
@@ -123,8 +124,10 @@ Este documento es la fuente única de reglas funcionales y de datos del dashboar
   - No enviadas PRE se desglosan en automática (`PRE_AUT_NOTFOUND_ERR`) y no automática (`PRE_NOTFOUND_ERR`).
   - Todas las pendientes automáticas PRE pasan a “Por renovar con información pendiente”; no se dividen en “Aún no corresponde”.
   - Etapa recibos en confirmadas: enviadas (`PRN`), falta enviar (`PRE` y aplica D-45) y aún no corresponde (antes de D-45).
-  - La urgencia se presenta en dos gráficos: PRE agrupa las confirmaciones pendientes no automáticas y automáticas; REN agrupa la falta de información de RIMAC y la información pendiente automática de las pólizas en renovación.
-  - El gráfico PRE usa rojo oscuro para pendientes no automáticas y ámbar para pendientes automáticas. El gráfico REN usa azul para falta de información de RIMAC y verde para información pendiente automática. Las series se apilan por rango de urgencia y las etiquetas de composición conservan esos colores.
+  - La urgencia se presenta en dos tablas de cantidades y porcentajes: confirmación pendiente agrupa no automáticas y automáticas; recibos pendientes agrupa falta de información de RIMAC e información pendiente automática.
+  - Las bandas usan días restantes hasta `CAP-ICFVENPO`: vigencia vencida, 0-7, 8-15, 16-29 y 30-50 para confirmación; para recibos el último rango es 30-45. No mostrar bandas por encima de 50 o 45 días: aún no corresponde exigir confirmación o recibos, respectivamente. No trasladar esos casos al último rango.
+  - El universo de cada tabla de urgencia, sus totales y porcentajes incluyen únicamente los casos dentro de la ventana correspondiente, conservando los vencidos; esta restricción no modifica los KPI generales ni el flujo de conciliación.
+  - Cada tabla muestra ambas cantidades, total por rango y porcentaje sobre su propio universo; el total es 100 % cuando hay casos y 0 % cuando está vacío. Los cortes visuales no modifican las fechas esperadas de confirmación ni de envío de recibos.
   - Vehicular es el único producto sin renovación automática; no mostrar una gráfica comparativa de productos con fallas de renovación.
   - Completada del día: `REN` con fecha de inicio `CAP-ICFECTE = hoy`.
   - No completada a tiempo: vigencia vencida, sin `REN` y con incidencia PRE/REN abierta.
@@ -141,6 +144,7 @@ Este documento es la fuente única de reglas funcionales y de datos del dashboar
   - **Cómo vamos:** usa el mismo universo de pólizas de la conciliación seleccionada. La confirmación previa suma aceptadas y aceptadas en automático; por renovar suma las aceptadas con información pendiente, las listas para renovar y las pendientes automáticas; el peligro de no renovación suma la falta de información de RIMAC y las pendientes no automáticas.
   - **Cómo me fue:** contratos cuya fecha `CAP-ICFVENPO` ya se alcanzó. Las no renovadas se clasifican sin solapamientos y en este orden: `NRE` como decisión de RIMAC; incidencia PRE o recibos abierta como información tardía; el remanente como decisión del cliente. Las tres causas deben sumar el total de no renovadas.
 - La decisión de no renovación del cliente se identifica mediante el estado `RZD`.
+- Unificar colores entre KPI generales y celdas de conciliación: azul para el universo, violeta para aceptadas y pendientes automáticas que suman confirmación previa, verde para los componentes de Por renovar y rojo para falta de información y pendientes no automáticas que suman peligro de no renovación. El total de no renovadas y sus causas se muestran en rojo, salvo Rechazadas por RIMAC y No renovadas por decisión de RIMAC: usar ámbar en esos KPI y en la celda Rechazados RIMAC de conciliación, como decisión grave pero no alerta operativa. Mantener etiquetas y cantidades para no depender solo del color.
 - En detalle de Renovación:
   - Póliza y producto desde MAESTRA_CONTRATOS.
   - Modalidad desde CAP-ICCMOD01.
@@ -159,21 +163,22 @@ Este documento es la fuente única de reglas funcionales y de datos del dashboar
 - En el escenario demostrativo completo deben cuadrar 223 recibos a facturar, 180 facturados y 177 cobrados. La tasa de cobranza es `177 / 223 × 100 = 79,4 %`.
 - El estado facturado de los 180 recibos es demostrativo hasta que negocio confirme el campo físico que lo identifica; no promover esta clasificación a producción sin esa definición.
 - Las métricas generales incluyen monto a facturar, monto cobrado y porcentaje cobrado por moneda. Soles y USD se muestran simultáneamente dentro de cada caja, sin selector de moneda. Para la maqueta, ambos importes usan un importe unitario consistente para que el porcentaje monetario cuadre con `177 / 223`.
-- La evolución muestra por fecha los recibos por facturar, facturados y cobrados. La tabla por producto ordena por mayor volumen de recibos a facturar, conserva los cinco productos principales y agrupa el resto en `Otros`.
+- No mostrar Evolución de cobranza ni Tasa de cobranza por producto; las métricas generales conservan los KPI y los importes por moneda.
 - El importe facturado por recibo usa `ICDTCAM.ICIPRTOT`; el importe neto efectivamente cobrado usa `ICDTCAM.ICPRREC`.
 - Los recibos cobrados del resultado filtrado usan ICDTCAM ICFECOB.
 - ICFECOB con valor 01-01-01 se interpreta como no cobrado.
 - INV_RIMAC_NOT_SENT en PEN: cobro automático realizado no informado por RIMAC.
 - INV_RIMAC_NOT_CHAR en PEN: no cobrado y no informado por RIMAC.
-- Los KPI de Conciliación con RIMAC se organizan en dos filas y reemplazan los KPI anteriores:
-  - Primera fila: recibos facturados en automático, recibos no conciliados y recibos conciliados. En el escenario demostrativo son 100, 20 y 80, respectivamente; no conciliados más conciliados debe ser igual al total facturado en automático.
-  - Segunda fila: recibos a facturar, recibos no facturados y monto no facturado. En el escenario completo son 223 recibos a facturar, 43 no facturados y S/ 13.760,00 pendientes; el monto muestra Soles y USD, uno debajo del otro, dentro de la misma caja.
+- En Conciliación con RIMAC usar una composición de KPI reproducible en el diseño libre de QuickSight, sin diagrama personalizado ni conectores. Primera fila: Recibos a facturar, Facturados (sin los automáticos), En automático y No facturados. En el escenario completo, `80 + 100 + 43 = 223`.
+- En una segunda fila, bajo el encabezado Conciliación de recibos en automático, mostrar exclusivamente sus conciliados y no conciliados: `80 + 20 = 100`. No confundir los 80 del KPI Facturados con los 80 conciliados del universo automático.
+- Cada KPI muestra cantidad y suma del importe facturable de sus propios recibos en Soles y USD, sin conversiones. En el escenario completo, los grupos suman S/ 25.600,00, S/ 32.000,00 y S/ 13.760,00, respectivamente; USD es 0,00. El universo automático se divide en S/ 25.600,00 conciliados y S/ 6.400,00 no conciliados. En QuickSight esta presentación se compone con visuales KPI separados para cantidades e importes; no representa un único visual nativo ramificado.
+- El KPI general de recibos facturados sigue incluyendo ambas ramas facturadas: `80 + 100 = 180`. El desglose entre automático y resto es demostrativo hasta confirmar el campo físico productivo.
 - La clasificación entre conciliado y no conciliado de estos 100 recibos es demostrativa hasta que negocio confirme el campo físico productivo.
-- En Conciliación con RIMAC no mostrar el gráfico mensual de evolución de incidencias. Reemplazarlo por dos gráficos de barras horizontales:
+- En Conciliación con RIMAC no mostrar el gráfico mensual de evolución de incidencias. Mostrar dos tablas con columnas Antigüedad y Cantidad de recibos, y una fila Total:
   - Antigüedad de recibos no conciliados; sus bandas deben sumar el KPI de no conciliados.
   - Antigüedad de recibos no facturados; sus bandas deben sumar el KPI de no facturados.
 - Las bandas de antigüedad son mutuamente excluyentes: 1-3, 4-5, 6-7 y más de 7 días. La etiqueta visible `7+` representa más de 7 días para evitar contar dos veces el día 7.
-- No mostrar el gráfico `Resultado de información RIMAC`; después de los dos gráficos de antigüedad debe mostrarse directamente la tabla de detalle.
+- No mostrar el gráfico `Resultado de información RIMAC`; después de las dos tablas de antigüedad debe mostrarse directamente la tabla de detalle.
 - En detalle de Cobranza:
   - Mostrar el número de contrato completo inmediatamente después del ID de conciliación, tanto en la tabla como en la exportación.
   - Póliza y producto desde MAESTRA_CONTRATOS por entidad + oficina + cuenta interna.
@@ -224,6 +229,48 @@ Usar este formato para cada nueva regla:
 - Archivos actualizados:
 
 ### Entradas
+
+- 2026-10-16
+  - Solicitud de negocio: adaptar el flujo de Cobranza a visuales disponibles en QuickSight.
+  - Regla acordada: sustituir las ramificaciones personalizadas por una primera fila de KPI de facturación y una segunda de conciliación automática, conservando cantidades, importes por moneda y tablas de antigüedad.
+  - Impacto: disposición visual de la conciliación de Cobranza; sin cambios en cálculos.
+  - Archivos actualizados: src/App.tsx, src/App.css y docs/REGLAS_DASHBOARD.md.
+
+- 2026-10-16
+  - Solicitud de negocio: rehacer el funnel de Cobranza con 80 facturados, 100 automáticos y 43 no facturados, cada grupo con su sumatoria en soles y dólares.
+  - Regla acordada: flujo ramificado desde 223 recibos con tres grupos excluyentes y conciliación solo bajo los automáticos; cantidades e importes salen de los mismos recibos, conservando el total general facturado de 180.
+  - Impacto: composición y trazabilidad monetaria del flujo de conciliación de Cobranza.
+  - Archivos actualizados: src/App.tsx, src/App.css, docs/REGLAS_DASHBOARD.md y docs/CAMPOS_METRICAS.md.
+
+- 2026-10-16
+  - Solicitud de negocio: no mostrar en rojo Rechazadas por RIMAC ni No renovadas por decisión de RIMAC.
+  - Regla acordada: usar ámbar para ambas tarjetas y su celda de rechazo RIMAC en el flujo, conservando rojo para peligro y total de no renovadas. Negocio precisó que es una decisión grave, no una alerta, y descartó el tono neutro.
+  - Impacto: colores de Renovación, sin modificar cantidades ni clasificaciones.
+  - Archivos actualizados: src/App.tsx y docs/REGLAS_DASHBOARD.md.
+
+- 2026-10-16
+  - Solicitud de negocio: cambiar Por solicitud del cliente a Inmediata en Cancelación (nombre corregido por negocio).
+  - Regla acordada: renombrar la categoría en KPI y gráficos, conservando sus 660 casos demostrativos e importes.
+  - Impacto: etiquetas de las métricas generales de Cancelación.
+  - Archivos actualizados: src/App.tsx y docs/REGLAS_DASHBOARD.md.
+
+- 2026-10-16
+  - Solicitud de negocio: eliminar Más de 50 días y Más de 45 días porque exceden las ventanas de confirmación y recibos.
+  - Regla acordada: limitar las tablas de urgencia y sus denominadores a sus ventanas operativas, sin reasignar casos fuera de ventana al rango final.
+  - Impacto: rangos, totales y porcentajes de urgencia de Renovación.
+  - Archivos actualizados: src/App.tsx, docs/REGLAS_DASHBOARD.md y docs/CAMPOS_METRICAS.md.
+
+- 2026-10-16
+  - Solicitud de negocio: marcar peligro y no renovadas en rojo, alinear colores entre KPI y conciliación, cambiar cortes a 30-50 y 30-45 y sustituir gráficos de urgencia por tablas con porcentajes.
+  - Regla acordada: compartir colores por componente del total; tablas de confirmación y recibos con rangos excluyentes y porcentajes de su universo, preservando las reglas de negocio y los casos fuera de las ventanas.
+  - Impacto: KPI generales, tabla de flujo y urgencia de Renovación.
+  - Archivos actualizados: src/App.tsx, src/App.css, docs/REGLAS_DASHBOARD.md y docs/CAMPOS_METRICAS.md.
+
+- 2026-10-16
+  - Solicitud de negocio: retirar Evolución de cobranza y Tasa de cobranza por producto, y presentar las antigüedades en tablas para facilitar su lectura.
+  - Regla acordada: conservar KPI e importes generales; mostrar antigüedad de no conciliados y no facturados en tablas de rangos, cantidades y total, sin cambiar sus cálculos.
+  - Impacto: visuales de las dos secciones de Cobranza.
+  - Archivos actualizados: src/App.tsx, src/App.css, docs/REGLAS_DASHBOARD.md y docs/CAMPOS_METRICAS.md.
 
 - 2026-10-13
   - Solicitud de negocio: ajustar los KPI de Overview a 76 altas, 4,892 cancelaciones, 3 renovadas y 177 cobranzas; retirar conciliaciones por producto; agregar conciliaciones creadas y el contrato en el detalle.

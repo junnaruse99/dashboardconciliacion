@@ -92,6 +92,8 @@ En Renovación, Cancelación y Cobranza las métricas generales responden al con
 | Vencidas sin renovar por información pendiente | Contratos con vigencia terminada, estado distinto de `REN` e incidencia `PRE_*` o `REN_*` abierta. | Renovación |
 | Renovadas en el mes | Contratos con `CONTRACT_RENEWAL_STATUS_TYPE = REN` y `CAP-ICFVENPO` dentro del mes actual. | Renovación |
 | Días para regularizar | Diferencia firmada en días calendario entre hoy y `CAP-ICFVENPO`; un valor negativo indica vigencia vencida. | Renovación |
+| Urgencia de confirmación pendiente | Tabla por días hasta `CAP-ICFVENPO`: vencida, 0-7, 8-15, 16-29 y 30-50; desglosa pendientes no automáticas y automáticas. Porcentaje = total del rango / total de confirmaciones pendientes dentro de la ventana de hasta 50 días, incluidos vencidos. | Renovación |
+| Urgencia de recibos pendientes | Tabla por días hasta `CAP-ICFVENPO`: vencida, 0-7, 8-15, 16-29 y 30-45; desglosa falta de información e información pendiente automática. Porcentaje = total del rango / total de recibos pendientes dentro de la ventana de hasta 45 días, incluidos vencidos. | Renovación |
 | Recibos a facturar | Conteo de movimientos ICDTCAM con `ICFELIQ` dentro del rango filtrado. El escenario demostrativo completo contiene 223. | Cobranza |
 | Recibos facturados | Conteo de recibos con estado demostrativo `FAC`. El escenario completo contiene 180; el campo físico productivo queda pendiente de confirmación de negocio. | Cobranza |
 | Recibos cobrados | Conteo de movimientos ICDTCAM con `ICFECOB` real y dentro del rango filtrado. El escenario demostrativo completo contiene 177. | Cobranza |
@@ -99,15 +101,15 @@ En Renovación, Cancelación y Cobranza las métricas generales responden al con
 | Monto a facturar | Suma del importe facturable de los recibos por moneda. En producción corresponde a `ICDTCAM.ICIPRTOT`. | Cobranza |
 | Monto cobrado | Suma del importe neto cobrado por moneda. En producción corresponde a `ICDTCAM.ICPRREC`. | Cobranza |
 | Porcentaje cobrado | `Monto cobrado / monto a facturar × 100`. | Cobranza |
-| Evolución de facturación y cobranza | Conteos de recibos por facturar, facturados y cobrados agrupados por `ICFELIQ`. | Cobranza |
-| Tasa por producto | Recibos cobrados sobre recibos a facturar, ordenados por volumetría; se muestran Top 5 productos y el resto se agrupa en `Otros`. | Cobranza |
 | Recibos facturados en automático | Universo demostrativo de facturación automática. En la vista completa se fija en 100 hasta confirmar el campo físico productivo. | Conciliación Cobranza |
+| Facturados fuera del automático | Recibos facturados excluyendo los asignados a la rama automática; en el escenario completo `180 - 100 = 80`. Etiqueta del flujo: Facturados. | Conciliación Cobranza |
+| Importe por rama de facturación | Suma del importe facturable de los recibos de cada grupo excluyente, separada en PEN y USD sin conversión. Incluye total a facturar y los resultados de conciliación de la rama automática. | Conciliación Cobranza |
 | Recibos no conciliados | Parte pendiente del universo facturado en automático. En el escenario demostrativo son 20. | Conciliación Cobranza |
 | Recibos conciliados | Diferencia entre facturados en automático y no conciliados. En el escenario demostrativo son 80 y debe cumplirse `20 + 80 = 100`. | Conciliación Cobranza |
 | Recibos no facturados | `Recibos a facturar - recibos facturados`; para el escenario completo, `223 - 180 = 43`. | Conciliación Cobranza |
 | Monto no facturado | Suma del importe facturable de los recibos con estado de facturación pendiente, separada por moneda. En el escenario completo son S/ 13.760,00 y USD 0,00. | Conciliación Cobranza |
-| Antigüedad de no conciliados | Recibos no conciliados agrupados por días desde `ICFELIQ` en bandas mutuamente excluyentes: 1-3, 4-5, 6-7 y más de 7 días. Las bandas deben sumar el KPI de no conciliados. | Conciliación Cobranza |
-| Antigüedad de no facturados | Recibos no facturados agrupados por días desde `ICFELIQ` en bandas mutuamente excluyentes: 1-3, 4-5, 6-7 y más de 7 días. Las bandas deben sumar el KPI de no facturados. | Conciliación Cobranza |
+| Antigüedad de no conciliados | Tabla de recibos no conciliados agrupados por días desde `ICFELIQ`: 1-3, 4-5, 6-7 y más de 7 días. Incluye total igual al KPI de no conciliados. | Conciliación Cobranza |
+| Antigüedad de no facturados | Tabla de recibos no facturados agrupados por días desde `ICFELIQ`: 1-3, 4-5, 6-7 y más de 7 días. Incluye total igual al KPI de no facturados. | Conciliación Cobranza |
 | Cobro automático no informado | Conteo de conciliaciones `INV`, `PEN` e `INV_RIMAC_NOT_SENT`. | Cobranza |
 | No cobrado ni informado | Conteo de conciliaciones `INV`, `PEN` e `INV_RIMAC_NOT_CHAR`. | Cobranza |
 | Conciliaciones abiertas | Conteo de conciliaciones `INV` con `CONCILIATION_STATUS_TYPE = PEN`. | Cobranza |
